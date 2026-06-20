@@ -243,8 +243,8 @@ export default async function DemoPage() {
                     <h3 className="text-sm font-semibold">{a.title}</h3>
                     <span className="label-mono">{formatDate(a.createdAt)}</span>
                   </div>
-                  {a.body && (
-                    <p className="text-sm text-muted-foreground leading-relaxed line-clamp-3">{a.body}</p>
+                  {a.content && (
+                    <p className="text-sm text-muted-foreground leading-relaxed line-clamp-3">{a.content}</p>
                   )}
                 </li>
               ))}

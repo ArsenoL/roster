@@ -148,7 +148,7 @@ function CreateFormDialog({ open, onOpenChange, clubId, onCreated }: any) {
  </Select>
  </div>
  <label className="text-xs flex items-center gap-1"><input type="checkbox" checked={f.required} onChange={e => setFields(prev => prev.map((x, j) => j === i ? { ...x, required: e.target.checked } : x))} /> Req</label>
- {fields.length > 1 && <Button variant="ghost" size="icon" onClick={() => setFields(prev.filter((_, j) => j !== i))}><Trash2 className="h-3 w-3" /></Button>}
+ {fields.length > 1 && <Button variant="ghost" size="icon" onClick={() => setFields(prev => prev.filter((_, j) => j !== i))}><Trash2 className="h-3 w-3" /></Button>}
  </div>
  ))}
  </div>

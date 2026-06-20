@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
   } else {
     await db.attendance.create({
       data: {
-        eventId, userId, status: 'EXCUSED', method: 'PARENT_EXCUSE', pointsEarned: 0,
+        eventId, userId, status: 'EXCUSED', method: 'MANUAL', pointsEarned: 0,
       },
     })
   }
@@ -64,18 +64,26 @@ export async function POST(req: NextRequest) {
     data: { status: 'APPROVED', approvedById: tokenRow.parentId, reviewedAt: new Date() },
   })
 
-  // Notify club leaders
+  // Notify club leaders (president + VP + committee heads). ADVISOR is a
+  // global UserRole, not a MembershipRole — we look up the club's advisor
+  // separately via Club.advisorId.
   const leaders = await db.membership.findMany({
-    where: { clubId: event.clubId, role: { in: ['PRESIDENT', 'VICE_PRESIDENT', 'ADVISOR', 'COMMITTEE_HEAD'] } },
+    where: { clubId: event.clubId, role: { in: ['PRESIDENT', 'VICE_PRESIDENT', 'COMMITTEE_HEAD'] } },
     select: { userId: true },
   })
+  const club = await db.club.findUnique({
+    where: { id: event.clubId },
+    select: { advisorId: true },
+  })
+  const leaderIds = new Set(leaders.map(l => l.userId))
+  if (club?.advisorId) leaderIds.add(club.advisorId)
   const parent = await db.user.findUnique({ where: { id: tokenRow.parentId }, select: { name: true } })
   const student = await db.user.findUnique({ where: { id: userId }, select: { name: true } })
 
-  await Promise.all(leaders.map((l) =>
+  await Promise.all(Array.from(leaderIds).map((userId) =>
     db.notification.create({
       data: {
-        userId: l.userId,
+        userId,
         clubId: event.clubId,
         type: 'ATTENDANCE_EXCUSE',
         title: `Absence excused for ${student?.name}`,

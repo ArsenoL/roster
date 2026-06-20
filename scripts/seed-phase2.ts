@@ -189,7 +189,7 @@ async function main() {
           isOfficial: ps.official,
         },
       })
-      const optionRecords = []
+      const optionRecords: Awaited<ReturnType<typeof db.pollOption.create>>[] = []
       for (let i = 0; i < ps.options.length; i++) {
         const opt = await db.pollOption.create({
           data: { pollId: poll.id, text: ps.options[i], sortOrder: i },
@@ -319,7 +319,7 @@ async function main() {
     const members = allMemberships.filter(m => m.clubId === club.id)
     // 3-5 committees per club
     const committeeNames = ['Outreach', 'Events', 'Marketing', 'Fundraising', 'Competition Prep', 'Social Media', 'Logistics']
-    const committees = []
+    const committees: Awaited<ReturnType<typeof db.committee.create>>[] = []
     for (const cn of pickN(committeeNames, randomInt(3, 5))) {
       const lead = randomItem(members)
       const cMembers = pickN(members, randomInt(3, 8))
@@ -339,7 +339,7 @@ async function main() {
     }
     // Task lists
     const listNames = ['Backlog', 'In Progress', 'Done']
-    const lists = []
+    const lists: Awaited<ReturnType<typeof db.taskList.create>>[] = []
     for (let i = 0; i < listNames.length; i++) {
       lists.push(await db.taskList.create({
         data: { clubId: club.id, name: listNames[i], color: ['#6b7280', '#3b82f6', '#10b981'][i], sortOrder: i },
@@ -450,7 +450,7 @@ async function main() {
       { name: 'Polaroid Camera', category: 'equipment', quantity: 2, condition: 'FAIR', price: 70, isLoanable: true },
       { name: 'Reference Textbook', category: 'book', quantity: 8, condition: 'GOOD', price: 35, isLoanable: true },
     ]
-    const items = []
+    const items: Array<{ item: Awaited<ReturnType<typeof db.inventoryItem.create>>, loanedOut: number }> = []
     for (const spec of invSpecs) {
       const loanedOut = spec.isLoanable ? randomInt(0, Math.min(spec.quantity, 3)) : 0
       const item = await db.inventoryItem.create({

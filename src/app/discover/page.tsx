@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useFetch } from '@/lib/clubhub/hooks'
+import { useDarkMode } from '@/lib/clubhub/use-dark-mode'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -17,25 +18,10 @@ import {
 import { CLUB_CATEGORIES, categoryEmoji, categoryLabel } from '@/lib/clubhub/types'
 
 export default function DiscoverPage() {
-  const [dark, setDark] = useState(false)
+  const { dark, toggle: toggleDark } = useDarkMode()
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('ALL')
 
-  useEffect(() => {
-    setDark(document.documentElement.classList.contains('dark'))
-  }, [])
-
-  const toggleDark = () => {
-    const next = !dark
-    setDark(next)
-    if (next) {
-      document.documentElement.classList.add('dark')
-      localStorage.setItem('roster.theme', 'dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-      localStorage.setItem('roster.theme', 'light')
-    }
-  }
 
   const query = new URLSearchParams()
   if (search) query.set('search', search)

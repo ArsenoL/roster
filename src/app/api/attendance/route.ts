@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
 
   // Bulk update: { eventId, updates: [{userId, status}, ...] }
   if (bulk && Array.isArray(body.updates)) {
-    const results = []
+    const results: Awaited<ReturnType<typeof db.attendance.upsert>>[] = []
     for (const u of body.updates) {
       const r = await db.attendance.upsert({
         where: { eventId_userId: { eventId, userId: u.userId } },

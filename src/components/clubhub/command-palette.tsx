@@ -15,6 +15,7 @@ import {
  Compass, Bell, LogIn,
 } from 'lucide-react'
 import { useAuth } from '@/lib/clubhub/use-auth'
+import { useDarkMode } from '@/lib/clubhub/use-dark-mode'
 
 interface CommandItemDef {
  label: string
@@ -30,7 +31,7 @@ export function CommandPalette() {
  const router = useRouter()
  const { user, logout } = useAuth()
  const [open, setOpen] = useState(false)
- const [dark, setDark] = useState(false)
+ const { dark, toggle: toggleDark } = useDarkMode()
 
  // Listen for Cmd+K (Mac) / Ctrl+K (Windows/Linux)
  useEffect(() => {
@@ -44,20 +45,6 @@ export function CommandPalette() {
  return () => document.removeEventListener('keydown', down)
  }, [])
 
- useEffect(() => {
- setDark(document.documentElement.classList.contains('dark'))
- }, [open])
-
- const toggleDark = () => {
- const next = !dark
- if (next) {
- document.documentElement.classList.add('dark')
- localStorage.setItem('roster.theme', 'dark')
- } else {
- document.documentElement.classList.remove('dark')
- localStorage.setItem('roster.theme', 'light')
- }
- }
 
  const navigate = (path: string) => {
  setOpen(false)

@@ -1,5 +1,7 @@
 import * as React from "react"
 
+/* eslint-disable react-hooks/set-state-in-effect -- initial sync from window.matchMedia is a legitimate external-store subscription */
+
 const MOBILE_BREAKPOINT = 768
 
 export function useIsMobile() {

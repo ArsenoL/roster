@@ -15,14 +15,14 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Trophy, Flame, Crown, Plus, Award, Star, Zap, Target, Medal, Gift, TrendingUp } from 'lucide-react'
-import { BADGE_TIERS, avatarColor, initials, type Badge } from '@/lib/clubhub/types'
+import { BADGE_TIERS, avatarColor, initials, type Badge as BadgeT } from '@/lib/clubhub/types'
 import { toast } from 'sonner'
 
 export function GamificationTab({ clubId }: { clubId: string }) {
  const badgesUrl = clubId !== 'ALL' ? `/api/badges?clubId=${clubId}` : `/api/badges`
  const engagementUrl = `/api/analytics?view=engagement${clubId !== 'ALL' ? `&clubId=${clubId}` : ''}`
 
- const { data: badgesData, loading: l1, refetch: refetchBadges } = useFetch<{ badges: Badge[] }>(badgesUrl)
+ const { data: badgesData, loading: l1, refetch: refetchBadges } = useFetch<{ badges: BadgeT[] }>(badgesUrl)
  const { data: engagement, loading: l2 } = useFetch<any>(engagementUrl)
 
  const [createOpen, setCreateOpen] = useState(false)
@@ -173,7 +173,7 @@ export function GamificationTab({ clubId }: { clubId: string }) {
  )
 }
 
-function BadgeCard({ badge, onAward }: { badge: Badge, onAward: () => void }) {
+function BadgeCard({ badge, onAward }: { badge: BadgeT, onAward: () => void }) {
  return (
  <Card className="overflow-hidden">
  <div className="h-2" style={{ backgroundColor: badge.color }} />

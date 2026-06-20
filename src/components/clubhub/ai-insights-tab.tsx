@@ -308,7 +308,7 @@ function InsightRow({ insight, onResolve }: { insight: any; onResolve: (id: stri
  : sev === 'warning'
  ? 'var(--accent-warn)'
  : 'var(--accent-good)'
- const Icon = insightTypeIcon(insight.type)
+ const Icon = INSIGHT_TYPE_ICONS[insight.type] || AlertTriangle
 
  return (
  <li className="p-4">
@@ -343,25 +343,18 @@ function InsightRow({ insight, onResolve }: { insight: any; onResolve: (id: stri
 
 /* ───── Helpers ───── */
 
-function insightTypeIcon(type: string) {
- switch (type) {
- case 'AT_RISK_MEMBER':
- case 'ATTENDANCE_DECLINE':
- case 'ENGAGEMENT_DROP':
- return TrendingDown
- case 'BUDGET_WARNING':
- return PiggyBank
- case 'EQUIPMENT_OVERDUE':
- return Package
- case 'CAPACITY_WARNING':
- case 'RECOMMEND_MEETING_TIME':
- return Calendar
- case 'SCHEDULING_CONFLICT':
- return Clock
- case 'RECOMMEND_OUTREACH':
- case 'TREND_DETECTION':
- return Lightbulb
- default:
- return AlertTriangle
- }
+// Static icon lookup map — using a record instead of a switch function
+// avoids the React 19 "static-components" lint (functions returning component
+// types look like they're creating new components on each render).
+const INSIGHT_TYPE_ICONS: Record<string, React.ComponentType<{ className?: string; style?: React.CSSProperties }>> = {
+  AT_RISK_MEMBER: TrendingDown,
+  ATTENDANCE_DECLINE: TrendingDown,
+  ENGAGEMENT_DROP: TrendingDown,
+  BUDGET_WARNING: PiggyBank,
+  EQUIPMENT_OVERDUE: Package,
+  CAPACITY_WARNING: Calendar,
+  RECOMMEND_MEETING_TIME: Calendar,
+  SCHEDULING_CONFLICT: Clock,
+  RECOMMEND_OUTREACH: Lightbulb,
+  TREND_DETECTION: Lightbulb,
 }

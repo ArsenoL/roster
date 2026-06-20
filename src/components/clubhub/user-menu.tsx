@@ -7,6 +7,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useAuth, defaultLandingForUser } from '@/lib/clubhub/use-auth'
+import { useDarkMode } from '@/lib/clubhub/use-dark-mode'
 import {
  LogIn, LogOut, User as UserIcon, ChevronDown, Settings, School,
  Heart, GraduationCap, Building2, Moon, Sun, Home, Menu as MenuIcon,
@@ -16,14 +17,11 @@ import { avatarColor, initials } from '@/lib/clubhub/types'
 export function UserMenu() {
  const { user, loading, logout } = useAuth()
  const [open, setOpen] = useState(false)
- const [dark, setDark] = useState(false)
+ const { dark, toggle: toggleDark } = useDarkMode()
  const ref = useRef<HTMLDivElement>(null)
  const router = useRouter()
 
- useEffect(() => {
- setDark(document.documentElement.classList.contains('dark'))
- }, [])
-
+ 
  useEffect(() => {
  function onClick(e: MouseEvent) {
  if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
@@ -31,18 +29,6 @@ export function UserMenu() {
  document.addEventListener('mousedown', onClick)
  return () => document.removeEventListener('mousedown', onClick)
  }, [])
-
- const toggleDark = () => {
- const next = !dark
- setDark(next)
- if (next) {
- document.documentElement.classList.add('dark')
- localStorage.setItem('roster.theme', 'dark')
- } else {
- document.documentElement.classList.remove('dark')
- localStorage.setItem('roster.theme', 'light')
- }
- }
 
  if (loading) {
  return <Avatar className="h-8 w-8 bg-muted animate-pulse" />

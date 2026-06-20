@@ -341,7 +341,7 @@ async function buildClubDigest(clubId: string, question: string) {
     const [items, overdueLoans] = await Promise.all([
       db.inventoryItem.findMany({
         where: { clubId },
-        select: { name: true, condition: true, status: true, quantity: true },
+        select: { name: true, condition: true, quantity: true, quantityAvailable: true },
         take: 50,
       }),
       db.inventoryLoan.findMany({

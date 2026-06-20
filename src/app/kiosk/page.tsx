@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useDarkMode } from '@/lib/clubhub/use-dark-mode'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -35,6 +36,7 @@ export default function KioskPage() {
 
   // Auto-uppercase the code
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- auto-uppercase transform on input
     setCode(code.toUpperCase())
   }, [code])
 

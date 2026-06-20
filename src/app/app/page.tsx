@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useCurrentClub, useFetch } from '@/lib/clubhub/hooks'
+import { useDarkMode } from '@/lib/clubhub/use-dark-mode'
 import { useAuth } from '@/lib/clubhub/use-auth'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -137,7 +138,7 @@ export default function HomePage() {
   const [clubId, setClubId] = useCurrentClub()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [settingsClubId, setSettingsClubId] = useState<string | undefined>(undefined)
-  const [dark, setDark] = useState(false)
+  const { dark, toggle: toggleDark } = useDarkMode()
 
   const { data: clubsData } = useFetch<{ clubs: Club[] }>('/api/clubs')
   const clubs = clubsData?.clubs || []
@@ -164,6 +165,7 @@ export default function HomePage() {
   useEffect(() => {
     const tab = searchParams.get('tab') as TabId | null
     if (tab && NAV_ITEMS.some((n) => n.id === tab)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing internal state from external URL params is a legitimate effect use
       setActiveTab(tab)
     }
   }, [searchParams])
@@ -175,25 +177,11 @@ export default function HomePage() {
     if (!currentClub || !activeTab) return
     if (ALWAYS_ON_TABS.includes(activeTab)) return
     if (!isModuleEnabled(currentClub.modules, activeTab as ModuleId)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- redirect-on-invalid-module is a legitimate side-effect
       setActiveTab('dashboard')
     }
   }, [currentClub, activeTab])
 
-  useEffect(() => {
-    setDark(document.documentElement.classList.contains('dark'))
-  }, [])
-
-  const toggleDark = () => {
-    const next = !dark
-    setDark(next)
-    if (next) {
-      document.documentElement.classList.add('dark')
-      localStorage.setItem('roster.theme', 'dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-      localStorage.setItem('roster.theme', 'light')
-    }
-  }
 
   const navigateToSettings = (id: string) => {
     setSettingsClubId(id)

@@ -102,7 +102,6 @@ async function main() {
             reason: 'College visit',
             description: 'Scheduled campus tour at state university.',
             submittedById: members[1].userId,
-            submittedById: members[1].userId,
             status: 'APPROVED',
             approvedById: adminUser?.id || members[0].userId,
             reviewedAt: new Date(),

@@ -62,14 +62,22 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  // Notify club admins
+  // Notify club admins (president + VP). The faculty advisor is a User.role
+  // (global), not a MembershipRole — we look them up via Club.advisorId below.
   const admins = await db.membership.findMany({
-    where: { clubId: body.clubId, role: { in: ['PRESIDENT', 'VICE_PRESIDENT', 'ADVISOR'] } },
+    where: { clubId: body.clubId, role: { in: ['PRESIDENT', 'VICE_PRESIDENT'] } },
     select: { userId: true },
   })
-  await Promise.all(admins.map(a => db.notification.create({
+  // Also include the club's faculty advisor if one is set.
+  const club = await db.club.findUnique({
+    where: { id: body.clubId },
+    select: { advisorId: true },
+  })
+  const userIds = new Set(admins.map(a => a.userId))
+  if (club?.advisorId) userIds.add(club.advisorId)
+  await Promise.all(Array.from(userIds).map(userId => db.notification.create({
     data: {
-      userId: a.userId,
+      userId,
       type: 'application',
       title: 'New application received',
       body: `${name} applied to join`,

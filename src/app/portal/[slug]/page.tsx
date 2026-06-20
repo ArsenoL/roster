@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, use } from 'react'
+import Link from 'next/link'
 import { useFetch, apiPost } from '@/lib/clubhub/hooks'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'

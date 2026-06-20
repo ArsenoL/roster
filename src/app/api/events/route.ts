@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
   })
 
   const duration = end.getTime() - start.getTime()
-  const created = []
+  const created: Awaited<ReturnType<typeof db.event.create>>[] = []
   for (let i = 1; i < count; i++) {  // start at 1 — parentEvent is instance 0
     const s = new Date(start)
     const e = new Date(end)

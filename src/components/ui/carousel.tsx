@@ -1,5 +1,7 @@
 "use client"
 
+/* eslint-disable react-hooks/set-state-in-effect -- shadcn/ui carousel; onSelect sync from Embla API is a legitimate external-store subscription */
+
 import * as React from "react"
 import useEmblaCarousel, {
   type UseEmblaCarouselType,

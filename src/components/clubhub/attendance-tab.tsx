@@ -61,6 +61,7 @@ function KioskMode({ clubId }: { clubId: string }) {
 
  useEffect(() => {
  if (!selectedEventId && events.length > 0) {
+ // eslint-disable-next-line react-hooks/set-state-in-effect -- auto-select first event when none is selected
  setSelectedEventId(events[0].id)
  }
  }, [events, selectedEventId])
@@ -245,7 +246,10 @@ function QrCheckIn({ clubId }: { clubId: string }) {
  const events = useMemo(() => (eventsData?.events || []).filter(e => new Date(e.startTime) > new Date(Date.now() - 86400000)), [eventsData])
 
  useEffect(() => {
- if (!selectedEventId && events.length > 0) setSelectedEventId(events[0].id)
+ if (!selectedEventId && events.length > 0) {
+ // eslint-disable-next-line react-hooks/set-state-in-effect -- auto-select first event when none is selected
+ setSelectedEventId(events[0].id)
+ }
  }, [events, selectedEventId])
 
  const selectedEvent = events.find(e => e.id === selectedEventId)

@@ -47,10 +47,12 @@ export async function POST(req: NextRequest) {
   const club = await db.club.findUnique({ where: { id: clubId } })
   if (!user || !club) return NextResponse.json({ error: 'User or club not found' }, { status: 404 })
 
-  // 1. Mark membership inactive
+  // 1. Mark membership inactive (MembershipStatus enum: ACTIVE / PROBATIONARY / ALUMNI / REMOVED — no INACTIVE).
+  // We use REMOVED for offboarded members because it's the closest semantic match
+  // (the membership is no longer active in any operational sense).
   await db.membership.updateMany({
     where: { userId, clubId, status: 'ACTIVE' },
-    data: { status: 'INACTIVE', leftAt: new Date(effectiveDate || Date.now()) },
+    data: { status: 'REMOVED', leftAt: new Date(effectiveDate || Date.now()) },
   })
 
   // 2. If graduation, check if user has any other active memberships — if not, mark as GRADUATED
@@ -87,9 +89,7 @@ export async function POST(req: NextRequest) {
           userId,
           clubId,
           graduationYear: user.graduationYear || new Date().getFullYear(),
-          isMentor: false,
-          isDonor: false,
-          isSpeaker: false,
+          mentorshipAvailable: false,
         }
       })
       await db.memberOffboarding.update({

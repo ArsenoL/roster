@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { apiPost } from '@/lib/clubhub/hooks'
 import { useAuth } from '@/lib/clubhub/use-auth'
+import { useDarkMode } from '@/lib/clubhub/use-dark-mode'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -23,7 +24,7 @@ import { MODULES, CORE_MODULES, getModulesByGroup, type ModuleId, type ModuleGro
 export default function OnboardingPage() {
   const router = useRouter()
   const { user, loading: authLoading, refresh } = useAuth()
-  const [dark, setDark] = useState(false)
+  const { dark, toggle: toggleDark } = useDarkMode()
   const [mode, setMode] = useState<'choose' | 'create'>('choose')
 
   // Club-create form state (only used when mode === 'create')
@@ -37,10 +38,6 @@ export default function OnboardingPage() {
     new Set(CORE_MODULES)
   )
   const [creating, setCreating] = useState(false)
-
-  useEffect(() => {
-    setDark(document.documentElement.classList.contains('dark'))
-  }, [])
 
   // Auth gate — if not signed in, redirect to login with the next param preserved.
   useEffect(() => {
@@ -64,18 +61,6 @@ export default function OnboardingPage() {
     )
   }
   if (!user) return null
-
-  const toggleDark = () => {
-    const next = !dark
-    setDark(next)
-    if (next) {
-      document.documentElement.classList.add('dark')
-      localStorage.setItem('roster.theme', 'dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-      localStorage.setItem('roster.theme', 'light')
-    }
-  }
 
   async function createClub() {
     if (!clubName.trim()) {

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useFetch } from '@/lib/clubhub/hooks'
+import { useDarkMode } from '@/lib/clubhub/use-dark-mode'
 import { useAuth } from '@/lib/clubhub/use-auth'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -32,27 +33,12 @@ export default function StudentDashboard() {
   const router = useRouter()
   const { user, loading: authLoading } = useAuth()
   const { data, loading } = useFetch<any>('/api/me')
-  const [dark, setDark] = useState(false)
+  const { dark, toggle: toggleDark } = useDarkMode()
 
   useEffect(() => {
     if (!authLoading && !user) router.replace('/login?next=/app/me')
   }, [authLoading, user, router])
 
-  useEffect(() => {
-    setDark(document.documentElement.classList.contains('dark'))
-  }, [])
-
-  const toggleDark = () => {
-    const next = !dark
-    setDark(next)
-    if (next) {
-      document.documentElement.classList.add('dark')
-      localStorage.setItem('roster.theme', 'dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-      localStorage.setItem('roster.theme', 'light')
-    }
-  }
 
   if (authLoading || (!user && !loading)) {
     return (

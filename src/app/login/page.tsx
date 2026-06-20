@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, Suspense, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,6 +18,7 @@ import {
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { _refreshAuthState, defaultLandingForUser, useAuth } from '@/lib/clubhub/use-auth'
+import { useDarkMode } from '@/lib/clubhub/use-dark-mode'
 
 function LoginInner() {
   const params = useSearchParams()
@@ -30,43 +31,14 @@ function LoginInner() {
   const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'verifying' | 'success' | 'error'>('idle')
   const [error, setError] = useState('')
   const [devLink, setDevLink] = useState<string | null>(null)
-  const [dark, setDark] = useState(false)
+  const { dark, toggle: toggleDark } = useDarkMode()
 
-  useEffect(() => {
-    setDark(document.documentElement.classList.contains('dark'))
-    if (token) {
-      verifyToken(token)
-    }
-  }, [token])
-
-  // If user is already signed in, redirect to their landing.
-  useEffect(() => {
-    if (user) {
-      const target = defaultLandingForUser(user, nextParam)
-      if (typeof window !== 'undefined' && window.location.pathname !== target) {
-        router.replace(target)
-      }
-    }
-  }, [user, nextParam, router])
-
-  const toggleDark = () => {
-    const next = !dark
-    setDark(next)
-    if (next) {
-      document.documentElement.classList.add('dark')
-      localStorage.setItem('roster.theme', 'dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-      localStorage.setItem('roster.theme', 'light')
-    }
-  }
-
-  function redirectAfterLogin(signedInUser: any) {
+  const redirectAfterLogin = useCallback((signedInUser: any) => {
     const target = defaultLandingForUser(signedInUser, nextParam)
     router.replace(target)
-  }
+  }, [nextParam, router])
 
-  async function verifyToken(t: string) {
+  const verifyToken = useCallback(async (t: string) => {
     setStatus('verifying')
     try {
       const res = await fetch('/api/auth/verify-magic', {
@@ -92,7 +64,23 @@ function LoginInner() {
       setStatus('error')
       setError(e.message)
     }
-  }
+  }, [redirectAfterLogin, router])
+
+  // Verify magic-link token from ?token=... query param.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fire-and-forget async verification triggered by URL param
+    if (token) verifyToken(token)
+  }, [token, verifyToken])
+
+  // If user is already signed in, redirect to their landing.
+  useEffect(() => {
+    if (user) {
+      const target = defaultLandingForUser(user, nextParam)
+      if (typeof window !== 'undefined' && window.location.pathname !== target) {
+        router.replace(target)
+      }
+    }
+  }, [user, nextParam, router])
 
   async function requestMagic() {
     if (!email) return

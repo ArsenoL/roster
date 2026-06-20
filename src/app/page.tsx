@@ -21,27 +21,13 @@ import {
   Building2,
 } from 'lucide-react'
 import { useAuth } from '@/lib/clubhub/use-auth'
+import { useDarkMode } from '@/lib/clubhub/use-dark-mode'
 
 export default function LandingPage() {
   const { user, loading } = useAuth()
-  const [dark, setDark] = useState(false)
+  const { dark, toggle: toggleDark } = useDarkMode()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
-  useEffect(() => {
-    setDark(document.documentElement.classList.contains('dark'))
-  }, [])
-
-  const toggleDark = () => {
-    const next = !dark
-    setDark(next)
-    if (next) {
-      document.documentElement.classList.add('dark')
-      localStorage.setItem('roster.theme', 'dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-      localStorage.setItem('roster.theme', 'light')
-    }
-  }
 
   const dashboardHref = user
     ? (user.role === 'STUDENT' ? '/app/me'

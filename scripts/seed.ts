@@ -75,7 +75,7 @@ async function main() {
   // -----------------------------------------------------
   // 1) FACULTY ADVISORS
   // -----------------------------------------------------
-  const advisors = []
+  const advisors: Awaited<ReturnType<typeof db.user.create>>[] = []
   const advisorNames = [
     { name: 'Dr. Emily Carter', email: 'e.carter@school.edu', dept: 'Science' },
     { name: 'Mr. James Lee', email: 'j.lee@school.edu', dept: 'Athletics' },
@@ -93,7 +93,7 @@ async function main() {
   // 2) STUDENTS — 220 of them across grades 9-12
   // -----------------------------------------------------
   console.log('Creating 220 students...')
-  const students = []
+  const students: Awaited<ReturnType<typeof db.user.create>>[] = []
   const grades = [9, 10, 11, 12]
   const gradYearFor = (g: number) => 2026 + (12 - g)
   for (let i = 0; i < 220; i++) {
@@ -215,7 +215,7 @@ async function main() {
       modules: ['members', 'attendance', 'events', 'announcements', 'applications'],
     },
   ]
-  const clubs = []
+  const clubs: Awaited<ReturnType<typeof db.club.create>>[] = []
   for (const spec of clubSpecs) {
     const memberCount = randomInt(28, Math.min(spec.capacity, 55))
     const clubMembers = pickN(students, memberCount)
@@ -228,7 +228,7 @@ async function main() {
       data: {
         name: spec.name,
         description: spec.description,
-        category: spec.category,
+        category: spec.category as any,
         primaryColor: spec.primaryColor,
         accentColor: spec.accentColor,
         advisorId: spec.advisorId,
@@ -333,7 +333,7 @@ async function main() {
           authorId: president.id,
           title: an.title,
           content: an.content,
-          priority: an.priority,
+          priority: an.priority as any,
           isPinned: an.isPinned,
           category: an.category,
           scheduledFor: new Date(Date.now() - randomInt(1, 14) * 86400000),
@@ -454,7 +454,7 @@ async function main() {
           clubId: club.id,
           title: se.title,
           description: `${se.title} for ${club.name}.`,
-          type: se.type,
+          type: se.type as any,
           startTime: start,
           endTime: end,
           location: randomItem(['Main Gym', 'Auditorium', 'Cafeteria', 'Library', club.meetingRoom || 'TBD']),

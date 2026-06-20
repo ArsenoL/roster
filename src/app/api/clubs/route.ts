@@ -60,14 +60,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Club name is required' }, { status: 400 })
   }
 
-  // Create the club
+  // Create the club. Default brand colors come from the civic palette
+  // (coral primary, teal accent) — clubs can override in Settings → Branding.
   const club = await db.club.create({
     data: {
       name,
       description: body.description || null,
       category: body.category || 'OTHER',
-      primaryColor: body.primaryColor || '#10b981',
-      accentColor: body.accentColor || '#6366f1',
+      primaryColor: body.primaryColor || '#d6543e',   // coral (matches --vibrant)
+      accentColor: body.accentColor || '#2a9d8f',     // teal (matches --vibrant-2)
       advisorId: body.advisorId || null,
       presidentId: user.id,  // creator is the president
       meetingRoom: body.meetingRoom || null,
