@@ -4,13 +4,16 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ============================================================
-   Roster — Utilitarian / Civic design system
-   References: USDS Public Sans, Stripe Atlas docs, early Linear
+   Roster — Utilitarian / Civic design system + vibrant accents
+   References: USDS Public Sans, Stripe Atlas docs, early Linear,
+              then warmed up with Notion / Linear-style color splashes.
    Principles:
-   - One accent color (a confident government blue)
-   - Sharp corners (radius: 0)
-   - Ruled lines instead of shadows
-   - No gradients. No blur. No glass. No grid pattern.
+   - Civic skeleton: sharp corners (radius 0), ruled borders, mono labels
+   - Vibrant accents: a coral "energy" color for CTAs and active states,
+     a teal "calm" color for secondary accents, plus soft tinted backgrounds
+   - No drop shadows. No blur. No glass. No full-bleed gradients.
+   - Color is used as a *signal*, not as decoration — every splash points
+     at something you can act on.
    - Public Sans for body+headings, IBM Plex Mono for data
    ============================================================ */
 
@@ -90,6 +93,23 @@
   --accent-good: oklch(0.5 0.13 150);          /* green for success */
   --accent-bad:  oklch(0.55 0.22 25);          /* red for errors */
 
+  /* ───── Vibrant accents ─────
+     The civic blue is still the "infrastructure" color — borders, mono labels,
+     links. The two vibrant colors below are *signal* colors used sparingly
+     on CTAs, active states, and small accent panels.
+       --vibrant        : coral — "do this next" (primary CTA, active tab)
+       --vibrant-strong : hover/pressed state for coral
+       --vibrant-soft   : 8% coral tint for backgrounds and ribbons
+       --vibrant-2      : teal — "context" (secondary highlights, info pills)
+       --vibrant-2-soft : 8% teal tint
+     Plus a soft-good background for success states (replaces inline rgba). */
+  --vibrant:        oklch(0.62 0.19 28);        /* coral */
+  --vibrant-strong: oklch(0.55 0.21 28);        /* coral pressed */
+  --vibrant-soft:   oklch(0.62 0.19 28 / 0.10); /* coral 10% tint */
+  --vibrant-2:      oklch(0.6 0.13 195);        /* teal */
+  --vibrant-2-soft: oklch(0.6 0.13 195 / 0.10); /* teal 10% tint */
+  --accent-good-soft: oklch(0.5 0.13 150 / 0.12);
+
   --primary: var(--accent);
   --primary-foreground: oklch(0.99 0 0);
 
@@ -135,6 +155,15 @@
   --accent-warn: oklch(0.78 0.15 65);
   --accent-good: oklch(0.72 0.14 150);
   --accent-bad:  oklch(0.68 0.19 25);
+
+  /* Vibrant accents in dark mode — slightly brighter so they pop on the
+     dark backdrop, but the same hues as light mode for brand consistency. */
+  --vibrant:        oklch(0.7 0.19 28);
+  --vibrant-strong: oklch(0.78 0.19 28);
+  --vibrant-soft:   oklch(0.7 0.19 28 / 0.16);
+  --vibrant-2:      oklch(0.72 0.13 195);
+  --vibrant-2-soft: oklch(0.72 0.13 195 / 0.16);
+  --accent-good-soft: oklch(0.72 0.14 150 / 0.18);
 
   --primary: var(--accent);
   --primary-foreground: oklch(0.16 0.005 240);
@@ -324,5 +353,59 @@
   .link-u:hover {
     text-decoration-color: var(--accent);
     color: var(--accent);
+  }
+
+  /* ───── Vibrant accent utilities ─────
+     Use these sparingly — they exist to draw the eye to one actionable
+     thing per screen. */
+
+  /* Coral CTA — primary "do this next" button look */
+  .btn-vibrant {
+    background-color: var(--vibrant);
+    color: #fff;
+    border: 0;
+  }
+  .btn-vibrant:hover {
+    background-color: var(--vibrant-strong);
+  }
+
+  /* Small color chip — used in sidebar groups, status rows, etc. */
+  .chip {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    flex-shrink: 0;
+  }
+  .chip-coral  { background-color: var(--vibrant); }
+  .chip-teal   { background-color: var(--vibrant-2); }
+  .chip-blue   { background-color: var(--accent); }
+  .chip-amber  { background-color: var(--accent-warn); }
+  .chip-green  { background-color: var(--accent-good); }
+  .chip-violet { background-color: var(--chart-5); }
+
+  /* Accent ribbon — a small horizontal stripe used on hero sections and
+     form headers. Replaces "shadow + gradient" with a flat color block. */
+  .ribbon {
+    height: 4px;
+    width: 40px;
+    background-color: var(--vibrant);
+  }
+  .ribbon-teal {
+    background-color: var(--vibrant-2);
+  }
+
+  /* Soft tinted panel — for callouts, dev previews, success states.
+     Pairs a 10%-tint background with a solid-color border. */
+  .panel-coral {
+    background-color: var(--vibrant-soft);
+    border: 1px solid var(--vibrant);
+  }
+  .panel-teal {
+    background-color: var(--vibrant-2-soft);
+    border: 1px solid var(--vibrant-2);
+  }
+  .panel-good {
+    background-color: var(--accent-good-soft);
+    border: 1px solid var(--accent-good);
   }
 }

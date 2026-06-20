@@ -22,7 +22,7 @@ import { MODULES, CORE_MODULES, getModulesByGroup, type ModuleId, type ModuleGro
 
 export default function OnboardingPage() {
   const router = useRouter()
-  const { user, loading: authLoading } = useAuth()
+  const { user, loading: authLoading, refresh } = useAuth()
   const [dark, setDark] = useState(false)
   const [mode, setMode] = useState<'choose' | 'create'>('choose')
 
@@ -96,9 +96,14 @@ export default function OnboardingPage() {
         isPublic: true,
         requireApproval: false,
       })
-      if (res?.id) {
+      const clubId = res?.club?.id || res?.id
+      if (clubId) {
         toast.success('Club created. Taking you to your dashboard.')
-        setTimeout(() => router.push('/app'), 600)
+        // Re-fetch the user so the new membership + upgraded role are
+        // reflected before we land on /app — otherwise the onboarding
+        // gate on /app would bounce them back here.
+        await refresh()
+        setTimeout(() => router.push('/app'), 400)
       } else {
         toast.error('Could not create the club. ' + (res?.error ?? ''))
         setCreating(false)
@@ -140,6 +145,7 @@ export default function OnboardingPage() {
       <main className="max-w-3xl mx-auto px-5 sm:px-8 py-12 md:py-16">
         {/* Heading */}
         <div className="mb-10">
+          <div className="ribbon mb-4" />
           <div className="label-mono mb-2">Welcome</div>
           <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
             What do you want to do?
@@ -158,7 +164,7 @@ export default function OnboardingPage() {
               body="You run this club (or want to). Pick a name and a category; everything else is set later in Settings."
               cta="Start a club"
               onClick={() => setMode('create')}
-              primary
+              accent="coral"
             />
             <ChoiceCard
               icon={Search}
@@ -166,6 +172,7 @@ export default function OnboardingPage() {
               body="Browse the public clubs at your school and apply to the ones you want to be part of."
               cta="Browse clubs"
               href="/discover"
+              accent="teal"
             />
             <ChoiceCard
               icon={Heart}
@@ -173,6 +180,7 @@ export default function OnboardingPage() {
               body="You're here to check on your kid's club activity. You'll need a token from them or their advisor."
               cta="Open parent view"
               href="/app/parent"
+              accent="amber"
             />
             <ChoiceCard
               icon={Eye}
@@ -180,6 +188,7 @@ export default function OnboardingPage() {
               body="Want to poke around before committing? Open the demo club — no signup, no commitment."
               cta="Try a demo"
               href="/demo"
+              accent="violet"
             />
           </div>
         )}
@@ -187,7 +196,10 @@ export default function OnboardingPage() {
         {mode === 'create' && (
           <div className="border border-border">
             <div className="p-6 md:p-8 border-b border-border">
-              <div className="label-mono mb-2">Step 1 of 1</div>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="ribbon" />
+                <div className="label-mono">Step 1 of 1</div>
+              </div>
               <h2 className="text-xl font-semibold mb-1">Name your club</h2>
               <p className="text-sm text-muted-foreground">
                 That&apos;s all you need to get started. You can set the description, meeting day,
@@ -221,8 +233,8 @@ export default function OnboardingPage() {
                   </SelectTrigger>
                   <SelectContent>
                     {CLUB_CATEGORIES.map((c) => (
-                      <SelectItem key={c} value={c}>
-                        {categoryLabel(c)}
+                      <SelectItem key={c.value} value={c.value}>
+                        {c.emoji} {c.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -292,7 +304,7 @@ export default function OnboardingPage() {
                 <Button variant="ghost" size="sm" onClick={() => setMode('choose')}>
                   ← Back
                 </Button>
-                <Button onClick={createClub} disabled={!clubName.trim() || creating} className="h-11 px-5">
+                <Button onClick={createClub} disabled={!clubName.trim() || creating} className="h-11 px-5 btn-vibrant">
                   {creating ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Creating…
@@ -334,27 +346,53 @@ function ChoiceCard({
   cta,
   href,
   onClick,
-  primary,
+  accent = 'coral',
 }: {
-  icon: React.ComponentType<{ className?: string }>
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>
   label: string
   body: string
   cta: string
   href?: string
   onClick?: () => void
   primary?: boolean
+  accent?: 'coral' | 'teal' | 'amber' | 'violet'
 }) {
+  // Map accent → CSS var. Each choice card gets its own color so the
+  // grid reads as four distinct paths instead of a uniform wall of cards.
+  const accentVar = {
+    coral: 'var(--vibrant)',
+    teal: 'var(--vibrant-2)',
+    amber: 'var(--accent-warn)',
+    violet: 'var(--chart-5)',
+  }[accent]
+  const accentSoft = {
+    coral: 'var(--vibrant-soft)',
+    teal: 'var(--vibrant-2-soft)',
+    amber: 'oklch(0.62 0.16 65 / 0.14)',
+    violet: 'oklch(0.5 0.1 280 / 0.14)',
+  }[accent]
+
   const inner = (
-    <div className="bg-background p-7 md:p-8 h-full flex flex-col">
+    <div className="bg-background p-7 md:p-8 h-full flex flex-col relative group transition-colors">
+      {/* Top stripe — the card's accent color. Brightens on hover so the
+          grid looks calm by default and lights up as you explore. */}
+      <div
+        className="absolute top-0 left-0 right-0 h-[3px] opacity-60 group-hover:opacity-100 transition-opacity"
+        style={{ backgroundColor: accentVar }}
+      />
       <div className="flex items-center gap-2.5 mb-3">
-        <Icon className={`h-4 w-4 ${primary ? 'text-foreground' : 'text-muted-foreground'}`} />
+        <div
+          className="h-7 w-7 flex items-center justify-center"
+          style={{ backgroundColor: accentSoft, color: accentVar }}
+        >
+          <Icon className="h-3.5 w-3.5" />
+        </div>
         <h3 className="text-base font-semibold">{label}</h3>
       </div>
       <p className="text-sm text-muted-foreground leading-relaxed mb-6 flex-1">{body}</p>
       <span
-        className={`text-sm self-start ${
-          primary ? 'text-foreground font-medium' : 'text-foreground link-u'
-        }`}
+        className="text-sm self-start font-medium inline-flex items-center gap-1.5"
+        style={{ color: accentVar }}
       >
         {cta} →
       </span>

@@ -53,3 +53,5 @@ prompt
 server.log
 # Skills directory
 /skills/
+# Internal scratch (tool result dumps)
+tool-results/

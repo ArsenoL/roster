@@ -86,17 +86,32 @@ export function _refreshAuthState() {
 }
 
 /**
- * Pick the default landing page for a signed-in user based on their role.
- * - STUDENT → /app/me (personal dashboard)
- * - PARENT  → /app/parent (children overview)
- * - everyone else → /app (admin dashboard)
+ * Pick the default landing page for a signed-in user based on their role and
+ * membership state:
  *
- * If `next` query param is present and starts with `/`, that wins.
+ *  - PARENT  → /app/parent
+ *  - STUDENT → /app/me
+ *  - GUEST with no memberships → /app/onboarding  (they need to create or join a club first)
+ *  - everyone else → /app
+ *
+ * If `next` query param is present and starts with `/`, that wins (as long
+ * as it isn't `//`, which would be a protocol-relative URL → open-redirect).
  */
 export function defaultLandingForUser(user: AuthUser | null, next?: string | null): string {
   if (next && next.startsWith('/') && !next.startsWith('//')) return next
   if (!user) return '/login'
   if (user.role === 'STUDENT') return '/app/me'
   if (user.role === 'PARENT') return '/app/parent'
+  // First-time user (auto-created during magic-link) has role GUEST and no
+  // memberships. Send them to onboarding so they can create or join a club.
+  if (user.role === 'GUEST' && (!user.memberships || user.memberships.length === 0)) {
+    return '/app/onboarding'
+  }
+  // A CLUB_LEADER / ADVISOR / ADMIN who somehow has no active memberships
+  // (e.g. they graduated from their only club) also lands on onboarding so
+  // they can pick a new one.
+  if ((!user.memberships || user.memberships.length === 0) && user.role !== 'SUPER_ADMIN' && user.role !== 'SCHOOL_ADMIN') {
+    return '/app/onboarding'
+  }
   return '/app'
 }

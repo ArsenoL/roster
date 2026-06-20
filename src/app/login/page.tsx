@@ -12,6 +12,8 @@ import {
   Sun,
   Moon,
   ArrowRight,
+  ExternalLink,
+  Mail,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -27,6 +29,7 @@ function LoginInner() {
   const [email, setEmail] = useState('')
   const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'verifying' | 'success' | 'error'>('idle')
   const [error, setError] = useState('')
+  const [devLink, setDevLink] = useState<string | null>(null)
   const [dark, setDark] = useState(false)
 
   useEffect(() => {
@@ -94,6 +97,7 @@ function LoginInner() {
   async function requestMagic() {
     if (!email) return
     setStatus('sending')
+    setDevLink(null)
     try {
       const res = await fetch('/api/auth/request-magic', {
         method: 'POST',
@@ -101,7 +105,12 @@ function LoginInner() {
         body: JSON.stringify({ email, next: nextParam }),
       })
       if (res.ok) {
+        const data = await res.json()
         setStatus('sent')
+        // In dev (no SMTP), the API returns the link so we can render a
+        // one-tap button. In prod, devLink is undefined and the user just
+        // sees the "check your email" message.
+        if (data.devLink) setDevLink(data.devLink)
       } else {
         const data = await res.json()
         setStatus('error')
@@ -115,11 +124,14 @@ function LoginInner() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      {/* Top bar — civic: ruled border, no glass, no gradient logo */}
+      {/* Top bar */}
       <header className="border-b border-border">
         <div className="max-w-6xl mx-auto px-5 sm:px-8 h-14 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
             <span className="text-lg font-semibold tracking-tight">Roster</span>
+            <span className="hidden sm:inline-block label-mono border-l border-border pl-2 ml-1">
+              club operations
+            </span>
           </Link>
           <div className="flex items-center gap-2">
             <Link
@@ -135,10 +147,12 @@ function LoginInner() {
         </div>
       </header>
 
-      {/* Centered form — civic form aesthetic */}
       <main className="flex-1 flex items-center justify-center px-5 sm:px-8 py-12">
         <div className="w-full max-w-md">
-          {/* Status title — left-aligned, no decorative icon-in-circle */}
+          {/* Accent ribbon — small, vibrant, breaks the brutalism */}
+          <div className="h-1 w-16 bg-[var(--vibrant)] mb-6" />
+
+          {/* Status title */}
           <div className="mb-6">
             <div className="label-mono mb-2">Sign in</div>
             <h1 className="text-2xl font-semibold tracking-tight">
@@ -159,15 +173,15 @@ function LoginInner() {
 
           {/* Verifying spinner */}
           {status === 'verifying' && (
-            <div className="flex items-center gap-3 py-8 border border-border px-4">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">Verifying…</span>
+            <div className="flex items-center gap-3 py-8 border border-border px-4 bg-[var(--vibrant-soft)]">
+              <Loader2 className="h-5 w-5 animate-spin" style={{ color: 'var(--vibrant)' }} />
+              <span className="text-sm">Verifying…</span>
             </div>
           )}
 
           {/* Success state */}
           {status === 'success' && (
-            <div className="flex items-center gap-3 py-6 border border-border px-4">
+            <div className="flex items-center gap-3 py-6 border border-border px-4" style={{ background: 'var(--accent-good-soft)' }}>
               <CheckCircle2 className="h-5 w-5" style={{ color: 'var(--accent-good)' }} />
               <span className="text-sm">Redirecting…</span>
             </div>
@@ -192,7 +206,7 @@ function LoginInner() {
                 />
               </div>
               <Button
-                className="w-full h-11"
+                className="w-full h-11 bg-[var(--vibrant)] hover:bg-[var(--vibrant-strong)] text-white border-0"
                 onClick={requestMagic}
                 disabled={!email || status === 'sending'}
               >
@@ -215,16 +229,35 @@ function LoginInner() {
             </div>
           )}
 
-          {/* Sent state — show "use a different email" + hint */}
+          {/* Sent state — show the dev link inline if present (no SMTP), plus
+              the standard "use a different email" recovery action. */}
           {status === 'sent' && (
             <div className="space-y-4">
-              <Button variant="outline" className="w-full h-11" onClick={() => setStatus('idle')}>
+              {devLink && (
+                <div className="border p-4" style={{ borderColor: 'var(--vibrant)', background: 'var(--vibrant-soft)' }}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Mail className="h-3.5 w-3.5" style={{ color: 'var(--vibrant)' }} />
+                    <span className="label-mono" style={{ color: 'var(--vibrant-strong)' }}>Dev preview</span>
+                  </div>
+                  <p className="text-xs leading-relaxed mb-3" style={{ color: 'var(--vibrant-strong)' }}>
+                    SMTP isn&apos;t configured, so the email didn&apos;t actually leave this server.
+                    Open the link below to finish signing in.
+                  </p>
+                  <a
+                    href={devLink}
+                    className="inline-flex items-center gap-2 text-sm font-medium px-3 py-2 bg-[var(--vibrant)] text-white hover:bg-[var(--vibrant-strong)] transition-colors"
+                  >
+                    Open sign-in link <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                </div>
+              )}
+              <Button variant="outline" className="w-full h-11" onClick={() => { setStatus('idle'); setDevLink(null) }}>
                 Use a different email
               </Button>
               <p className="text-xs text-muted-foreground leading-relaxed">
                 Didn&apos;t get the email? Check your spam folder, or{' '}
                 <button
-                  onClick={() => setStatus('idle')}
+                  onClick={() => { setStatus('idle'); setDevLink(null) }}
                   className="text-foreground link-u"
                 >
                   try again
@@ -239,7 +272,7 @@ function LoginInner() {
             <div className="label-mono mb-2">About magic-link sign-in</div>
             <p className="text-xs text-muted-foreground leading-relaxed">
               We email you a one-time link. Click it within 15 minutes and you&apos;re signed in.
-              No password is ever stored, so there&apos;s nothing to leak. Sessions last 30 days on
+              No password is ever stored, so there&apos;s nothing to leak. Sessions last 14 days on
               this device.
             </p>
           </div>

@@ -143,10 +143,20 @@ export default function HomePage() {
   const clubs = clubsData?.clubs || []
   const currentClub = clubs.find((c) => c.id === clubId)
 
-  // Auth gate
+  // Auth gate — if not signed in, redirect to login with the next param preserved.
   useEffect(() => {
     if (!authLoading && !user) {
       router.replace('/login?next=/app')
+    }
+  }, [authLoading, user, router])
+
+  // Onboarding gate — a signed-in user with no active memberships isn't ready
+  // to see the dashboard yet (there's no club to show). Send them to onboarding
+  // so they can create or join one. SUPER_ADMIN / SCHOOL_ADMIN are exempt
+  // because they manage the whole tenant and don't need a club to be useful.
+  useEffect(() => {
+    if (!authLoading && user && user.role !== 'SUPER_ADMIN' && user.role !== 'SCHOOL_ADMIN' && user.role !== 'PARENT' && user.role !== 'STUDENT' && (!user.memberships || user.memberships.length === 0)) {
+      router.replace('/app/onboarding')
     }
   }, [authLoading, user, router])
 
@@ -447,9 +457,23 @@ function Sidebar({
           {NAV_GROUPS.map((group) => {
             const items = visibleItems.filter((n) => n.group === group)
             if (!items.length) return null
+            // Each nav group gets its own color chip — small, but enough
+            // to break the brutalism of an all-grey sidebar.
+            const chipClass = {
+              Today:  'chip-coral',
+              Members:'chip-teal',
+              Plan:   'chip-blue',
+              Track:  'chip-amber',
+              Engage: 'chip-violet',
+              Report: 'chip-green',
+              Admin:  'chip-coral',
+            }[group] || 'chip-coral'
             return (
               <div key={group}>
-                <div className="label-mono px-2 mb-1.5">{group}</div>
+                <div className="label-mono px-2 mb-1.5 flex items-center gap-2">
+                  <span className={`chip ${chipClass}`} />
+                  {group}
+                </div>
                 <div className="space-y-px">
                   {items.map((item) => {
                     const Icon = item.icon
@@ -460,9 +484,10 @@ function Sidebar({
                         onClick={() => onTabChange(item.id)}
                         className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 text-sm transition-colors ${
                           isActive
-                            ? 'bg-foreground text-background font-medium'
+                            ? 'font-medium text-white'
                             : 'text-foreground hover:bg-muted'
                         }`}
+                        style={isActive ? { backgroundColor: 'var(--vibrant)' } : undefined}
                       >
                         <Icon className="h-3.5 w-3.5 shrink-0" />
                         <span className="truncate flex-1 text-left">{item.label}</span>

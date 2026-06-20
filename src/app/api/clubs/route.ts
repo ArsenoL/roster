@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { CORE_MODULES } from '@/lib/clubhub/modules'
+import { getCurrentUser } from '@/lib/clubhub/auth'
 
 // GET /api/clubs — list all clubs (with member/event counts)
 export async function GET(req: NextRequest) {
@@ -42,18 +43,33 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ clubs: enriched })
 }
 
-// POST /api/clubs — create a new club
+// POST /api/clubs — create a new club.
+// Auth required. The creator is auto-enrolled as PRESIDENT of the club and
+// their global role is upgraded to CLUB_LEADER if it was GUEST. This makes
+// onboarding real: a brand-new user can sign in, create a club, and immediately
+// land in their dashboard with full owner permissions — no admin hand-holding.
 export async function POST(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Sign in to create a club' }, { status: 401 })
+  }
+
   const body = await req.json()
+  const name = String(body.name || '').trim()
+  if (!name) {
+    return NextResponse.json({ error: 'Club name is required' }, { status: 400 })
+  }
+
+  // Create the club
   const club = await db.club.create({
     data: {
-      name: body.name,
+      name,
       description: body.description || null,
       category: body.category || 'OTHER',
       primaryColor: body.primaryColor || '#10b981',
       accentColor: body.accentColor || '#6366f1',
       advisorId: body.advisorId || null,
-      presidentId: body.presidentId || null,
+      presidentId: user.id,  // creator is the president
       meetingRoom: body.meetingRoom || null,
       defaultDay: body.defaultDay || null,
       defaultTime: body.defaultTime || null,
@@ -70,11 +86,49 @@ export async function POST(req: NextRequest) {
       president: { select: { id: true, name: true } },
     }
   })
-  // create settings row
-  await db.clubSetting.create({ data: { clubId: club.id } })
-  // audit log
-  await db.auditLog.create({
-    data: { action: 'create', entity: 'Club', entityId: club.id, clubId: club.id, after: JSON.stringify(club) }
+
+  // Auto-enroll the creator as PRESIDENT of the new club.
+  // upsert guards against the (extremely unlikely) case where a Membership
+  // row for this user+club already exists from a prior partial run.
+  await db.membership.upsert({
+    where: { userId_clubId: { userId: user.id, clubId: club.id } },
+    create: {
+      userId: user.id,
+      clubId: club.id,
+      role: 'PRESIDENT',
+      status: 'ACTIVE',
+    },
+    update: {
+      role: 'PRESIDENT',
+      status: 'ACTIVE',
+      leftAt: null,
+    },
   })
+
+  // If the user was a GUEST (auto-created on first magic-link sign-in),
+  // upgrade their global role so they have full club-leader permissions
+  // across the product (insights, audit, integrations, etc.).
+  if (user.role === 'GUEST') {
+    await db.user.update({
+      where: { id: user.id },
+      data: { role: 'CLUB_LEADER' },
+    })
+  }
+
+  // Seed default settings row
+  await db.clubSetting.create({ data: { clubId: club.id } })
+
+  // Audit log
+  await db.auditLog.create({
+    data: {
+      action: 'create',
+      entity: 'Club',
+      entityId: club.id,
+      clubId: club.id,
+      userId: user.id,
+      after: JSON.stringify(club),
+    }
+  })
+
   return NextResponse.json({ club })
 }

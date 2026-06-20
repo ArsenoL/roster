@@ -166,10 +166,26 @@ export default function LandingPage() {
       </header>
 
       {/* ───────────────────── Hero ─────────────────────
-          Left-aligned, single accent, no gradient, no orbs, no grid overlay. */}
-      <section className="border-b border-border">
-        <div className="max-w-6xl mx-auto px-5 sm:px-8 py-20 md:py-28">
+          Left-aligned headline + small vibrant accent ribbon. No gradient,
+          no orbs. The coral ribbon above the headline and the coral CTA
+          together carry the eye from "what is this" to "what do I do". */}
+      <section className="border-b border-border relative overflow-hidden">
+        {/* Faint coral wash in the top-right corner — a single color splash,
+            not a full gradient. Uses CSS mask to fade out cleanly. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -top-32 -right-32 w-[520px] h-[520px] rounded-full"
+          style={{
+            background: 'var(--vibrant-soft)',
+            maskImage: 'radial-gradient(circle, black 0%, transparent 70%)',
+            WebkitMaskImage: 'radial-gradient(circle, black 0%, transparent 70%)',
+          }}
+        />
+        <div className="max-w-6xl mx-auto px-5 sm:px-8 py-20 md:py-28 relative">
           <div className="max-w-2xl">
+            {/* Coral ribbon — the single vibrant splash above the headline */}
+            <div className="ribbon mb-6" />
+
             <h1 className="text-4xl sm:text-5xl md:text-6xl font-semibold tracking-tight leading-[1.05]">
               Run your club
               <br />
@@ -183,13 +199,13 @@ export default function LandingPage() {
             </p>
 
             <div className="mt-8 flex flex-col sm:flex-row gap-3">
-              <Button size="lg" asChild className="h-11 px-5">
-                <Link href="/demo">
-                  Try a demo club <ArrowRight className="h-4 w-4 ml-2" />
+              <Button size="lg" asChild className="h-11 px-5 btn-vibrant">
+                <Link href="/login">
+                  Get started <ArrowRight className="h-4 w-4 ml-2" />
                 </Link>
               </Button>
               <Button size="lg" variant="outline" asChild className="h-11 px-5">
-                <Link href="/discover">Browse public clubs</Link>
+                <Link href="/demo">Try a demo</Link>
               </Button>
             </div>
 

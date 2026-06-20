@@ -578,3 +578,32 @@ Stage Summary:
 - GitHub repo at https://github.com/ArsenoL/roster now has one clean commit, no leaked secrets, no .env file (only .env.example with placeholders).
 - Local repo has matching single-commit history.
 - The PAT itself remains valid; it was not exposed in the final pushed commit. (User should still rotate it as a precaution since it was pasted in chat earlier, but the GitHub-side scan is clean.)
+
+---
+Task ID: post-rebuild-5
+Agent: main (Super Z)
+Task: Wire up the magic-link auth end-to-end, make the actual onboarding flow, and soften the brutal civic UI with vibrant color splashes.
+
+Work Log:
+- Audited existing auth scaffolding: request-magic, verify-magic, /login page, /app/onboarding page, use-auth hook, auth.ts server lib — all structurally present but with three real gaps: (a) no SMTP means the magic link is buffered to memory and discarded, so the user can never click it; (b) /api/clubs POST didn't require auth and didn't link the creator to the club as a member; (c) GUEST users with no memberships landed on /app which has nothing to show them.
+- Updated /api/auth/request-magic to return `devLink` in the JSON response when NODE_ENV !== 'production' AND no SMTP_HOST is set. The login page renders this as a one-tap "Open sign-in link" button inside a coral-tinted dev-preview panel. In production with SMTP configured, devLink is omitted entirely.
+- Updated /api/clubs POST to: (a) require auth via getCurrentUser(), (b) set presidentId = user.id, (c) upsert a Membership row linking creator → club as PRESIDENT (idempotent via userId_clubId unique), (d) upgrade user.role from GUEST → CLUB_LEADER, (e) write userId to the AuditLog entry.
+- Updated defaultLandingForUser in use-auth.ts so GUEST users with no memberships are sent to /app/onboarding. Same for CLUB_LEADER/ADVISOR with no active memberships. SUPER_ADMIN/SCHOOL_ADMIN exempted (they manage the tenant, not a club).
+- Added onboarding gate to /app/page.tsx: signed-in user with no memberships gets redirected to /app/onboarding (with same SUPER_ADMIN/SCHOOL_ADMIN/PARENT/STUDENT exemptions).
+- Fixed pre-existing bug in onboarding page where res?.id was checked instead of res?.club?.id (the API returns { club: {...} }), which meant the success branch never fired and the user was stuck on the form forever.
+- Fixed pre-existing bug where CLUB_CATEGORIES is an array of {value,label,emoji} objects but the onboarding Select mapped it as if it were strings, producing TypeScript errors and broken option rendering.
+- Added `refresh` call after successful club creation so the new membership + upgraded role are reflected before the router pushes to /app (otherwise the onboarding gate on /app would bounce them back).
+- Wrote smoke-full.sh: starts dev server, runs 6-step curl flow (request → verify → me → create club → me again → list clubs). All steps pass. The full signup-to-club flow is real.
+- Added vibrant accent palette to globals.css: --vibrant (coral), --vibrant-strong (pressed), --vibrant-soft (10% tint), --vibrant-2 (teal), --vibrant-2-soft, --accent-good-soft. Plus utility classes .btn-vibrant, .chip / .chip-coral / .chip-teal / .chip-blue / .chip-amber / .chip-violet, .ribbon / .ribbon-teal, .panel-coral / .panel-teal / .panel-good.
+- Light mode and dark mode both have the new tokens; dark mode uses slightly brighter variants so the colors pop on the dark backdrop.
+- Updated /login page: small coral ribbon above the heading, vibrant CTA button (coral instead of plain bg-foreground), dev-preview panel uses panel-coral styling, success state uses panel-good.
+- Updated landing page hero: faint coral radial wash in the top-right corner (CSS mask fades it out, so it's a splash not a gradient), coral ribbon above the headline, primary CTA uses .btn-vibrant. Hero CTA now points to /login (was /demo) since the magic-link flow is real.
+- Updated /app/onboarding: ribbon above "What do you want to do?", each ChoiceCard gets its own accent color (coral/teal/amber/violet) with a small icon-tile in the tinted variant and a top stripe that brightens on hover. Create-club form has a ribbon next to "Step 1 of 1", the submit button uses .btn-vibrant.
+- Updated /app/page.tsx sidebar: each NavGroup gets a 6x6 color chip next to its label (Today=coral, Members=teal, Plan=blue, Track=amber, Engage=violet, Report=green, Admin=coral). Active tab is now coral with white text instead of bg-foreground/background.
+
+Stage Summary:
+- Magic-link auth is fully real: dev users get a one-tap link inline, prod users get a real email when SMTP is configured. Token + cookie + session verification all work end-to-end.
+- Onboarding is fully real: a brand-new user can sign in, pick "create a club", name it, pick modules, and land in their dashboard as CLUB_LEADER + PRESIDENT of the new club. No admin hand-holding needed.
+- UI is no longer brutal: civic skeleton (sharp corners, ruled borders, mono labels) is preserved, but vibrant coral/teal/amber/violet splashes now appear on CTAs, active states, hero ribbons, choice cards, and sidebar chips. Color is used as signal (each accent points at an action), not as decoration.
+- Smoke test (scripts/smoke-full.sh) verifies the entire flow with curl: 6/6 steps pass.
+- DB was reset + re-seeded after smoke test to clean up test artifacts.
