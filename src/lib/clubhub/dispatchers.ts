@@ -14,12 +14,93 @@
  */
 
 import { db } from '@/lib/db'
+import path from 'path'
+import fs from 'fs/promises'
+import crypto from 'crypto'
 
 // ============================================================
 // EMAIL — Nodemailer transport (SMTP from env) with file-fallback
 // ============================================================
 
 let transporter: any = null
+
+/** Dev-mode mailbox dir. Each sent email is saved as an HTML file here so
+ *  developers without SMTP can inspect exactly what would have been sent.
+ *  Lives inside the project root so it survives server restarts and is
+ *  easy to find. */
+const DEV_MAILBOX_DIR = path.join(process.cwd(), 'dev-emails')
+
+async function ensureDevMailbox() {
+  try {
+    await fs.mkdir(DEV_MAILBOX_DIR, { recursive: true })
+  } catch {
+    /* ignore — likely already exists */
+  }
+}
+
+/** Persist an email to the dev mailbox as an HTML file. Returns the absolute
+ *  file path so callers (and the API route) can surface it to the developer. */
+export async function saveDevEmail(opts: {
+  to: string
+  subject: string
+  html: string
+}): Promise<string> {
+  await ensureDevMailbox()
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const slug = (opts.to || 'unknown').replace(/[^a-z0-9.@_-]/gi, '_').slice(0, 60)
+  const rand = crypto.randomBytes(4).toString('hex')
+  const filename = `${stamp}__${slug}__${rand}.html`
+  const filepath = path.join(DEV_MAILBOX_DIR, filename)
+
+  // Wrap the original HTML in a small inspector shell that shows the
+  // metadata at the top, then renders the email below in an iframe-like
+  // container so the email's own styles don't leak into the page.
+  const wrapper = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Dev mailbox — ${escapeHtml(opts.subject)}</title>
+<style>
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f6f6f6; color: #1a1a1a; }
+  .meta { padding: 14px 20px; background: #fff; border-bottom: 1px solid #e5e5e5; font-size: 13px; }
+  .meta strong { display: inline-block; min-width: 70px; color: #666; font-weight: 500; }
+  .frame { padding: 24px; }
+  .email { max-width: 640px; margin: 0 auto; background: #fff; border: 1px solid #e5e5e5; padding: 24px; }
+</style>
+</head>
+<body>
+  <div class="meta">
+    <div><strong>To:</strong> ${escapeHtml(opts.to)}</div>
+    <div><strong>Subject:</strong> ${escapeHtml(opts.subject)}</div>
+    <div><strong>Sent:</strong> ${new Date().toString()}</div>
+    <div><strong>Mode:</strong> Dev mailbox (SMTP not configured — email was not actually delivered)</div>
+  </div>
+  <div class="frame">
+    <div class="email">
+      ${opts.html}
+    </div>
+  </div>
+</body>
+</html>`
+  await fs.writeFile(filepath, wrapper, 'utf8')
+  return filepath
+}
+
+function escapeHtml(s: string): string {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+/** True when SMTP is not configured and we're not in production. The API
+ *  layer uses this to decide whether to surface dev-mode affordances
+ *  (inline link, email preview) to the caller. */
+export function isDevMailboxMode(): boolean {
+  return process.env.NODE_ENV !== 'production' && !process.env.SMTP_HOST
+}
 
 async function getTransporter() {
   if (transporter) return transporter
@@ -38,9 +119,10 @@ async function getTransporter() {
           : undefined,
       })
     } else {
-      // No SMTP configured — use a JSON transport that writes to /tmp for local dev
-      // so we can still "send" emails and inspect them. This makes the feature real
-      // even without external SMTP credentials.
+      // No SMTP configured — use a stream transport so nodemailer's
+      // sendMail() still resolves (we don't actually deliver anything),
+      // and additionally persist the email HTML to /dev-emails/ so the
+      // developer can inspect it. See saveDevEmail().
       transporter = nodemailer.createTransport({
         streamTransport: true,
         buffer: true,
@@ -138,10 +220,37 @@ export async function drainOne(queueId: string): Promise<boolean> {
       html: item.body,
     })
 
-    await db.emailQueue.update({
-      where: { id: queueId },
-      data: { status: 'SENT', sentAt: new Date(), attempts: { increment: 1 } },
-    })
+    // Dev mailbox capture — when SMTP isn't configured, also save the email
+    // HTML to disk so the developer can inspect what would have been sent.
+    // The status is still 'SENT' from nodemailer's perspective (the stream
+    // transport "delivered" it), but we annotate lastError with the dev
+    // mailbox path so it's discoverable in the EmailQueue table.
+    if (isDevMailboxMode()) {
+      try {
+        const devPath = await saveDevEmail({
+          to: item.toEmail,
+          subject: item.subject,
+          html: item.body,
+        })
+        console.log(`[email] Dev mailbox saved: ${devPath}`)
+        await db.emailQueue.update({
+          where: { id: queueId },
+          data: {
+            status: 'SENT',
+            sentAt: new Date(),
+            attempts: { increment: 1 },
+            lastError: `DEV_MAILBOX:${devPath}`,
+          },
+        })
+      } catch (e: any) {
+        console.error('[email] Failed to save dev mailbox copy', e)
+      }
+    } else {
+      await db.emailQueue.update({
+        where: { id: queueId },
+        data: { status: 'SENT', sentAt: new Date(), attempts: { increment: 1 } },
+      })
+    }
 
     await db.emailLog.create({
       data: {

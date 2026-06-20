@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { enqueueEmail } from '@/lib/clubhub/dispatchers'
+import { enqueueEmail, isDevMailboxMode } from '@/lib/clubhub/dispatchers'
 
 /**
  * POST /api/auth/request-magic
@@ -46,14 +46,8 @@ export async function POST(req: NextRequest) {
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || `http://localhost:3000`
   const link = `${baseUrl}/login?token=${token}${next ? `&next=${encodeURIComponent(next)}` : ''}`
 
-  // Always queue the email — if SMTP is configured it actually sends; if not,
-  // the dispatcher writes to EmailQueue with a FAILED status but the link
-  // itself is still valid (we return it in dev below so the user can click).
-  await enqueueEmail({
-    toEmail: email,
-    toName: firstName,
-    subject: 'Your Roster sign-in link',
-    body: `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#1a1a1a">
+  const emailSubject = 'Your Roster sign-in link'
+  const emailBody = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#1a1a1a">
       <h2 style="margin:0 0 16px 0;font-size:20px;font-weight:600">Sign in to Roster</h2>
       <p style="margin:0 0 12px 0;color:#4a4a4a">Hi ${firstName},</p>
       <p style="margin:0 0 24px 0;color:#4a4a4a;line-height:1.55">
@@ -72,17 +66,36 @@ export async function POST(req: NextRequest) {
         Or paste this URL into your browser:<br />
         <a href="${link}" style="color:#666;word-break:break-all">${link}</a>
       </p>
-    </div>`,
+    </div>`
+
+  // Always queue the email — if SMTP is configured it actually sends; if not,
+  // the dispatcher writes to EmailQueue with a FAILED status but the link
+  // itself is still valid (we return it in dev below so the user can click).
+  await enqueueEmail({
+    toEmail: email,
+    toName: firstName,
+    subject: emailSubject,
+    body: emailBody,
     mergeData: { name: firstName, link },
   })
 
-  // In dev (no SMTP configured), return the link so the login page can show
-  // a one-tap "Open the link" button. This makes the magic-link flow
-  // fully testable without an email provider. In prod this field is omitted.
-  const isDev = process.env.NODE_ENV !== 'production' && !process.env.SMTP_HOST
+  // In dev (no SMTP configured), return the link AND the email HTML so the
+  // login page can show a one-tap "Open the link" button plus an inline
+  // preview of the email that would have been sent. In prod these fields
+  // are omitted entirely.
+  if (isDevMailboxMode()) {
+    return NextResponse.json({
+      ok: true,
+      message: 'Magic link sent',
+      devLink: link,
+      devEmailSubject: emailSubject,
+      devEmailHtml: emailBody,
+      devNote: 'Dev mode — SMTP not configured. Email was logged to the dev mailbox.',
+    })
+  }
+
   return NextResponse.json({
     ok: true,
     message: 'Magic link sent',
-    ...(isDev ? { devLink: link, devNote: 'SMTP not configured — link shown here for dev.' } : {}),
   })
 }

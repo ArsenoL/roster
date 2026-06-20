@@ -13,7 +13,9 @@ import {
   Moon,
   ArrowRight,
   ExternalLink,
-  Mail,
+  Info,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -31,6 +33,8 @@ function LoginInner() {
   const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'verifying' | 'success' | 'error'>('idle')
   const [error, setError] = useState('')
   const [devLink, setDevLink] = useState<string | null>(null)
+  const [devEmailHtml, setDevEmailHtml] = useState<string | null>(null)
+  const [showEmailPreview, setShowEmailPreview] = useState(false)
   const { dark, toggle: toggleDark } = useDarkMode()
 
   const redirectAfterLogin = useCallback((signedInUser: any) => {
@@ -86,6 +90,8 @@ function LoginInner() {
     if (!email) return
     setStatus('sending')
     setDevLink(null)
+    setDevEmailHtml(null)
+    setShowEmailPreview(false)
     try {
       const res = await fetch('/api/auth/request-magic', {
         method: 'POST',
@@ -98,7 +104,10 @@ function LoginInner() {
         // In dev (no SMTP), the API returns the link so we can render a
         // one-tap button. In prod, devLink is undefined and the user just
         // sees the "check your email" message.
-        if (data.devLink) setDevLink(data.devLink)
+        if (data.devLink) {
+          setDevLink(data.devLink)
+          setDevEmailHtml(data.devEmailHtml || null)
+        }
       } else {
         const data = await res.json()
         setStatus('error')
@@ -222,30 +231,67 @@ function LoginInner() {
           {status === 'sent' && (
             <div className="space-y-4">
               {devLink && (
-                <div className="border p-4" style={{ borderColor: 'var(--vibrant)', background: 'var(--vibrant-soft)' }}>
+                <div className="panel-teal p-4">
                   <div className="flex items-center gap-2 mb-2">
-                    <Mail className="h-3.5 w-3.5" style={{ color: 'var(--vibrant)' }} />
-                    <span className="label-mono" style={{ color: 'var(--vibrant-strong)' }}>Dev preview</span>
+                    <Info className="h-3.5 w-3.5" style={{ color: 'var(--vibrant-2)' }} />
+                    <span className="label-mono" style={{ color: 'var(--vibrant-2)' }}>
+                      Dev mode · SMTP not configured
+                    </span>
                   </div>
-                  <p className="text-xs leading-relaxed mb-3" style={{ color: 'var(--vibrant-strong)' }}>
-                    SMTP isn&apos;t configured, so the email didn&apos;t actually leave this server.
-                    Open the link below to finish signing in.
+                  <p className="text-sm leading-relaxed mb-3 text-foreground">
+                    We generated the sign-in link, but no SMTP server is set up in your{' '}
+                    <code className="px-1 py-0.5 text-xs" style={{ background: 'var(--muted)' }}>.env</code>{' '}
+                    so we can&apos;t actually deliver it. The full email was also saved to{' '}
+                    <code className="px-1 py-0.5 text-xs" style={{ background: 'var(--muted)' }}>/dev-emails/</code>{' '}
+                    so you can inspect it. Open the link below to finish signing in.
                   </p>
                   <a
                     href={devLink}
-                    className="inline-flex items-center gap-2 text-sm font-medium px-3 py-2 bg-[var(--vibrant)] text-white hover:bg-[var(--vibrant-strong)] transition-colors"
+                    className="inline-flex items-center gap-2 text-sm font-medium px-3 py-2 text-white transition-colors"
+                    style={{ background: 'var(--accent)' }}
                   >
                     Open sign-in link <ExternalLink className="h-3.5 w-3.5" />
                   </a>
+
+                  {devEmailHtml && (
+                    <div className="mt-3 border-t pt-3" style={{ borderColor: 'var(--vibrant-2)' }}>
+                      <button
+                        type="button"
+                        onClick={() => setShowEmailPreview((v) => !v)}
+                        className="flex items-center gap-1.5 text-xs link-u"
+                        style={{ color: 'var(--vibrant-2)' }}
+                      >
+                        {showEmailPreview ? (
+                          <ChevronUp className="h-3 w-3" />
+                        ) : (
+                          <ChevronDown className="h-3 w-3" />
+                        )}
+                        {showEmailPreview ? 'Hide email preview' : 'Preview the email that would have been sent'}
+                      </button>
+                      {showEmailPreview && (
+                        <div
+                          className="mt-3 border bg-white"
+                          style={{
+                            borderColor: 'var(--border)',
+                            // Inline iframe via srcDoc would be cleaner, but a
+                            // sandboxed div is enough for a dev preview and
+                            // avoids iframe height issues. We render the HTML
+                            // directly; the email template is self-contained.
+                          }}
+                          dangerouslySetInnerHTML={{ __html: devEmailHtml }}
+                        />
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
-              <Button variant="outline" className="w-full h-11" onClick={() => { setStatus('idle'); setDevLink(null) }}>
+              <Button variant="outline" className="w-full h-11" onClick={() => { setStatus('idle'); setDevLink(null); setDevEmailHtml(null); setShowEmailPreview(false) }}>
                 Use a different email
               </Button>
               <p className="text-xs text-muted-foreground leading-relaxed">
                 Didn&apos;t get the email? Check your spam folder, or{' '}
                 <button
-                  onClick={() => { setStatus('idle'); setDevLink(null) }}
+                  onClick={() => { setStatus('idle'); setDevLink(null); setDevEmailHtml(null); setShowEmailPreview(false) }}
                   className="text-foreground link-u"
                 >
                   try again

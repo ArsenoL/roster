@@ -50,6 +50,9 @@ dev.out.log
 test
 prompt
 
+# Dev mailbox — outgoing emails saved here when SMTP isn't configured
+/dev-emails/
+
 server.log
 # Skills directory
 /skills/
