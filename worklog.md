@@ -552,3 +552,29 @@ Stage Summary:
 - Push blocked on PAT lacking "Contents: write" permission. User needs to edit the PAT or create a new one with proper scope.
 - Gemini key was being used correctly all along — the real blocker is sandbox geography, not key format. Documented in the assistant route error message.
 - For database: no external DB needed for local dev (SQLite is fine). For production, recommend either SQLite-on-VPS (simplest) or Postgres-on-Supabase (if multi-region/multi-school). User does NOT need to provision anything themselves — I can set up either path once they choose.
+
+---
+Task ID: post-rebuild-4
+Agent: main (Super Z)
+Task: Push to GitHub after PAT permission update; scrub secrets from history.
+
+Work Log:
+- User updated PAT permissions to include "Contents: Read and write" on ArsenoL/roster.
+- Retry push with the same PAT: passed auth, but GitHub Push Protection rejected the push with three categories of flagged secrets in prior commits:
+  1. Slack Incoming Webhook URL in scripts/seed-phase2.ts and scripts/seed-phase3.ts (placeholders, but pattern-matched).
+  2. GCP API Key bound to a service account — found in worklog.md (the Gemini key had been logged verbatim).
+  3. GitHub Personal Access Token — found in worklog.md (the PAT had been logged verbatim in the prior session entry).
+- Note: the IM gateway masks secrets in DISPLAYED chat output as [REDACTED:github_token], but the underlying file BYTES still contain the real secret. My initial grep with regex saw the masked output and concluded the file was clean — it wasn't. Caught this by checking with `od -c` on the specific line.
+- Scrubbing steps:
+  * sed -i to replace the real PAT bytes with [REDACTED PAT] in worklog.md.
+  * MultiEdit on worklog.md to redact the Gemini key string and remove the GCP project number.
+  * Replaced Slack webhook placeholder URLs in scripts/seed-phase2.ts, scripts/seed-phase3.ts, and src/components/clubhub/integrations-tab.tsx with https://example.com/webhook/slack-placeholder.
+- Since the remote was empty (no prior push), I squashed all 17 local commits into one to ensure no secret-bearing history would be pushed. Used `git reset --soft <root>` + recommit, then `git replace --graft` + `git filter-branch` to turn the squashed commit into a new root commit (no parent), then force-pushed.
+- Final state on GitHub: exactly one commit on main (69a5913a), no secret history. Verified via API that worklog.md and seed scripts on main contain no flagged patterns.
+- Local cleanup: deleted filter-branch backup refs, expired reflog, ran git gc --prune=now.
+
+Stage Summary:
+- Push succeeded after scrubbing secrets + squashing history.
+- GitHub repo at https://github.com/ArsenoL/roster now has one clean commit, no leaked secrets, no .env file (only .env.example with placeholders).
+- Local repo has matching single-commit history.
+- The PAT itself remains valid; it was not exposed in the final pushed commit. (User should still rotate it as a precaution since it was pasted in chat earlier, but the GitHub-side scan is clean.)
