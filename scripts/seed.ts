@@ -143,6 +143,12 @@ async function main() {
       defaultTime: '15:30',
       capacity: 60,
       dues: 25,
+      // Realistic mix for a robotics club: core 3 + announcements (comms),
+      // tasks (project tracking), inventory (parts & kits), maintenance
+      // (broken robots). Doesn't use: finance (no dues collection beyond
+      // a flat fee), volunteer hours (not a service club), gamification,
+      // parent portal (high school — parents don't check in on robotics).
+      modules: ['members', 'attendance', 'events', 'announcements', 'tasks', 'inventory', 'maintenance'],
     },
     {
       name: 'Debate & Model UN',
@@ -156,6 +162,9 @@ async function main() {
       defaultTime: '15:15',
       capacity: 40,
       dues: 40,
+      // Debate club: core 3 + finance (competition travel costs money),
+      // announcements (tournament schedule), applications (selective).
+      modules: ['members', 'attendance', 'events', 'announcements', 'finance', 'applications'],
     },
     {
       name: 'Jazz Ensemble',
@@ -169,6 +178,9 @@ async function main() {
       defaultTime: '15:30',
       capacity: 25,
       dues: 30,
+      // Jazz: core 3 + announcements (concert schedule), resources
+      // (instrument booking), inventory (school-owned instruments).
+      modules: ['members', 'attendance', 'events', 'announcements', 'resources', 'inventory'],
     },
     {
       name: 'Environmental Action Club',
@@ -182,6 +194,9 @@ async function main() {
       defaultTime: '15:30',
       capacity: 50,
       dues: 0,
+      // Service club: core 3 + volunteer hours (NHS credit), announcements,
+      // digests (weekly recap to members).
+      modules: ['members', 'attendance', 'events', 'announcements', 'volunteer', 'digests'],
     },
     {
       name: 'Varsity Mathletes',
@@ -195,6 +210,9 @@ async function main() {
       defaultTime: '15:15',
       capacity: 30,
       dues: 15,
+      // Mathletes: core 3 + applications (selective), announcements.
+      // Tiny club, minimal modules.
+      modules: ['members', 'attendance', 'events', 'announcements', 'applications'],
     },
   ]
   const clubs = []
@@ -223,6 +241,7 @@ async function main() {
         isPublic: true,
         requireApproval: spec.category === 'ACADEMIC',
         status: 'ACTIVE',
+        modules: JSON.stringify(spec.modules ?? ['members', 'attendance', 'events']),
       }
     })
     clubs.push(club)

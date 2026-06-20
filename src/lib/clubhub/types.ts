@@ -24,6 +24,7 @@ export interface Club {
   logo: string | null
   foundedYear: number | null
   tags: string | null
+  modules: string | null  // JSON string array of enabled module IDs; null = all on (legacy)
   createdAt: string
   updatedAt: string
   advisor?: { id: string, name: string, email: string } | null

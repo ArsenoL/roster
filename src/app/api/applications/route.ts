@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/clubhub/auth'
+import { verifyModule } from '@/lib/clubhub/module-gate'
 
 export async function GET(req: NextRequest) {
+  const __gate = await verifyModule(req, 'applications')
+  if (__gate instanceof NextResponse) return __gate
+
   const url = new URL(req.url)
   const clubId = url.searchParams.get('clubId')
   const status = url.searchParams.get('status')
@@ -29,6 +33,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const __gate = await verifyModule(req, 'applications')
+  if (__gate instanceof NextResponse) return __gate
+
   const body = await req.json()
 
   // If the caller is signed in and didn't provide name/email, auto-fill from their account.

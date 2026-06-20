@@ -22,12 +22,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params
   const body = await req.json()
   const before = await db.club.findUnique({ where: { id } })
+
+  // Allow modules to be sent as a string[] from the client; serialize to JSON
+  // string before storing. Other fields pass through unchanged.
+  const data: any = { ...body }
+  if (Array.isArray(body.modules)) {
+    data.modules = JSON.stringify(body.modules)
+  }
+
   const club = await db.club.update({
     where: { id },
-    data: {
-      ...body,
-      // Prisma will ignore undefined fields; null is allowed
-    }
+    data,
   })
   await db.auditLog.create({
     data: { action: 'update', entity: 'Club', entityId: id, clubId: id, before: JSON.stringify(before), after: JSON.stringify(club) }

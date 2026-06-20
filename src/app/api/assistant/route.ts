@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { verifyModule } from '@/lib/clubhub/module-gate'
 
 /**
  * Assistant — real Gemini-powered Q&A over club data.
@@ -22,6 +23,9 @@ const GEMINI_MODEL = 'gemini-2.0-flash'
 const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`
 
 export async function POST(req: NextRequest) {
+  const __gate = await verifyModule(req, 'insights')
+  if (__gate instanceof NextResponse) return __gate
+
   const body = await req.json().catch(() => ({} as any))
   const clubId: string | undefined = body.clubId
   const question: string = (body.question || '').toString().trim()

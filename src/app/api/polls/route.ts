@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { verifyModule } from '@/lib/clubhub/module-gate'
 
 // GET /api/polls?clubId=...&status=...
 export async function GET(req: NextRequest) {
+  const __gate = await verifyModule(req, 'polls')
+  if (__gate instanceof NextResponse) return __gate
+
   const url = new URL(req.url)
   const clubId = url.searchParams.get('clubId')
   const status = url.searchParams.get('status')
@@ -50,6 +54,9 @@ export async function GET(req: NextRequest) {
 
 // POST /api/polls
 export async function POST(req: NextRequest) {
+  const __gate = await verifyModule(req, 'polls')
+  if (__gate instanceof NextResponse) return __gate
+
   const body = await req.json()
   const { options, ...pollData } = body
 

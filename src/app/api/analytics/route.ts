@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { verifyModule } from '@/lib/clubhub/module-gate'
 
 // GET /api/analytics?clubId=...&from=...&to=...&view=overview|trends|heatmap|retention|comparison|engagement
 export async function GET(req: NextRequest) {
+  const __gate = await verifyModule(req, 'analytics')
+  if (__gate instanceof NextResponse) return __gate
+
   const url = new URL(req.url)
   const clubId = url.searchParams.get('clubId')
   const from = url.searchParams.get('from')

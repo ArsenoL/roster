@@ -120,6 +120,10 @@ model Club {
   slug         String?  @unique // for public portal URL
   mission      String?
   tags         String?  // JSON array
+  // JSON string array of enabled module IDs (e.g. ["members","attendance","events"]).
+  // null = legacy club, treated as "all modules on" for backward compat.
+  // New clubs get CORE_MODULES from lib/clubhub/modules on creation.
+  modules      String?
   foundedYear  Int?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt

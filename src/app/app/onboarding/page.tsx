@@ -16,8 +16,9 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { toast } from 'sonner'
-import { Loader2, ArrowRight, Plus, Search, Heart, Eye, Sun, Moon } from 'lucide-react'
+import { Loader2, ArrowRight, Plus, Search, Heart, Eye, Sun, Moon, Check } from 'lucide-react'
 import { CLUB_CATEGORIES, categoryLabel } from '@/lib/clubhub/types'
+import { MODULES, CORE_MODULES, getModulesByGroup, type ModuleId, type ModuleGroup } from '@/lib/clubhub/modules'
 
 export default function OnboardingPage() {
   const router = useRouter()
@@ -28,6 +29,13 @@ export default function OnboardingPage() {
   // Club-create form state (only used when mode === 'create')
   const [clubName, setClubName] = useState('')
   const [clubCategory, setClubCategory] = useState<string>('ACADEMIC')
+  // Modules: starts with Core 3 pre-checked. The picker shows all modules
+  // grouped by category; the user can toggle anything on or off (except
+  // the Core 3, which are locked on — they're the literal definition of
+  // a club).
+  const [selectedModules, setSelectedModules] = useState<Set<ModuleId>>(
+    new Set(CORE_MODULES)
+  )
   const [creating, setCreating] = useState(false)
 
   useEffect(() => {
@@ -79,6 +87,10 @@ export default function OnboardingPage() {
       const res = await apiPost('/api/clubs', {
         name: clubName.trim(),
         category: clubCategory,
+        // Pass the user's selected modules. The server defaults to Core 3
+        // if this is omitted, but we always send it so the user's choices
+        // are honored exactly.
+        modules: Array.from(selectedModules),
         // Everything else is deferred to in-product Settings.
         description: null,
         isPublic: true,
@@ -95,6 +107,17 @@ export default function OnboardingPage() {
       toast.error(e?.message ?? 'Could not create the club.')
       setCreating(false)
     }
+  }
+
+  const toggleModule = (id: ModuleId) => {
+    // Core 3 can't be unchecked — they ARE the club.
+    if (CORE_MODULES.includes(id)) return
+    setSelectedModules((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
 
   return (
@@ -206,6 +229,65 @@ export default function OnboardingPage() {
                 </Select>
               </div>
 
+              {/* ─── Module picker ───
+                  Firebase-style: pick what you need. Core 3 are locked on
+                  (a club has members, meets, and tracks who showed up —
+                  by definition). Everything else is opt-in. */}
+
+              <div className="space-y-2.5 pt-2">
+                <Label className="label-mono">Modules</Label>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Pick what this club actually needs. You can add or remove modules from
+                  Settings → Modules anytime. The three core modules are always on.
+                </p>
+
+                <div className="space-y-5 pt-3">
+                  {Object.entries(getModulesByGroup()).map(([group, mods]) => {
+                    if (!mods.length) return null
+                    return (
+                      <div key={group}>
+                        <div className="label-mono text-xs text-muted-foreground mb-2">{group}</div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-px bg-border border border-border">
+                          {mods.map((m) => {
+                            const checked = selectedModules.has(m.id)
+                            const locked = CORE_MODULES.includes(m.id)
+                            return (
+                              <button
+                                key={m.id}
+                                type="button"
+                                onClick={() => toggleModule(m.id)}
+                                disabled={locked}
+                                className={`text-left p-3.5 bg-background transition-colors ${
+                                  locked ? 'cursor-default' : 'hover:bg-muted/50'
+                                }`}
+                              >
+                                <div className="flex items-start gap-2.5">
+                                  <div className={`mt-0.5 h-4 w-4 border flex items-center justify-center shrink-0 ${
+                                    checked ? 'bg-foreground border-foreground' : 'border-border'
+                                  }`}>
+                                    {checked && <Check className="h-3 w-3 text-background" />}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-baseline gap-2">
+                                      <span className="text-sm font-medium">{m.label}</span>
+                                      {locked && (
+                                        <span className="text-[10px] label-mono text-muted-foreground">always on</span>
+                                      )}
+                                    </div>
+                                    <div className="text-xs text-muted-foreground mt-0.5">{m.description}</div>
+                                    <div className="text-[11px] text-muted-foreground/80 mt-1 italic">{m.goodFor}</div>
+                                  </div>
+                                </div>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
               <div className="pt-2 flex items-center justify-between gap-3">
                 <Button variant="ghost" size="sm" onClick={() => setMode('choose')}>
                   ← Back
@@ -217,7 +299,7 @@ export default function OnboardingPage() {
                     </>
                   ) : (
                     <>
-                      Create club <ArrowRight className="h-4 w-4 ml-2" />
+                      Create club ({selectedModules.size} modules) <ArrowRight className="h-4 w-4 ml-2" />
                     </>
                   )}
                 </Button>

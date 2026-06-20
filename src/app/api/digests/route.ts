@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { verifyModule } from '@/lib/clubhub/module-gate'
 
 // GET /api/digests?clubId=...&userId=...
 export async function GET(req: NextRequest) {
+  const __gate = await verifyModule(req, 'digests')
+  if (__gate instanceof NextResponse) return __gate
+
   const url = new URL(req.url)
   const clubId = url.searchParams.get('clubId')
   const userId = url.searchParams.get('userId')
@@ -21,6 +25,9 @@ export async function GET(req: NextRequest) {
 
 // POST /api/digests — subscribe to a digest
 export async function POST(req: NextRequest) {
+  const __gate = await verifyModule(req, 'digests')
+  if (__gate instanceof NextResponse) return __gate
+
   const body = await req.json()
   const sub = await db.digestSubscription.upsert({
     where: { userId_clubId: { userId: body.userId, clubId: body.clubId } },

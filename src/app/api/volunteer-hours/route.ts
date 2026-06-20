@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { verifyModule } from '@/lib/clubhub/module-gate'
 
 // GET /api/volunteer-hours?clubId=...&userId=...&status=...
 export async function GET(req: NextRequest) {
+  const __gate = await verifyModule(req, 'volunteer')
+  if (__gate instanceof NextResponse) return __gate
+
   const url = new URL(req.url)
   const clubId = url.searchParams.get('clubId')
   const userId = url.searchParams.get('userId')
@@ -49,6 +53,9 @@ export async function GET(req: NextRequest) {
 
 // POST /api/volunteer-hours
 export async function POST(req: NextRequest) {
+  const __gate = await verifyModule(req, 'volunteer')
+  if (__gate instanceof NextResponse) return __gate
+
   const body = await req.json()
   const h = await db.volunteerHours.create({
     data: {

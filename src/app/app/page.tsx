@@ -53,6 +53,7 @@ import { AttendanceExcusesTab } from '@/components/clubhub/attendance-excuses-ta
 import { AttendanceRemindersTab } from '@/components/clubhub/attendance-reminders-tab'
 import { UserMenu } from '@/components/clubhub/user-menu'
 import { type Club } from '@/lib/clubhub/types'
+import { ALWAYS_ON_TABS, isModuleEnabled, type ModuleId } from '@/lib/clubhub/modules'
 
 type TabId =
   | 'dashboard' | 'clubs' | 'members' | 'events' | 'attendance' | 'analytics' | 'gamification'
@@ -138,6 +139,10 @@ export default function HomePage() {
   const [settingsClubId, setSettingsClubId] = useState<string | undefined>(undefined)
   const [dark, setDark] = useState(false)
 
+  const { data: clubsData } = useFetch<{ clubs: Club[] }>('/api/clubs')
+  const clubs = clubsData?.clubs || []
+  const currentClub = clubs.find((c) => c.id === clubId)
+
   // Auth gate
   useEffect(() => {
     if (!authLoading && !user) {
@@ -152,6 +157,17 @@ export default function HomePage() {
       setActiveTab(tab)
     }
   }, [searchParams])
+
+  // Module-gate the active tab: if the user is on a tab whose module
+  // has been disabled for the current club, fall back to dashboard.
+  // (Always-on tabs like dashboard/clubs/settings are never gated.)
+  useEffect(() => {
+    if (!currentClub || !activeTab) return
+    if (ALWAYS_ON_TABS.includes(activeTab)) return
+    if (!isModuleEnabled(currentClub.modules, activeTab as ModuleId)) {
+      setActiveTab('dashboard')
+    }
+  }, [currentClub, activeTab])
 
   useEffect(() => {
     setDark(document.documentElement.classList.contains('dark'))
@@ -169,9 +185,6 @@ export default function HomePage() {
     }
   }
 
-  const { data: clubsData } = useFetch<{ clubs: Club[] }>('/api/clubs')
-  const clubs = clubsData?.clubs || []
-
   const navigateToSettings = (id: string) => {
     setSettingsClubId(id)
     setClubId(id)
@@ -185,7 +198,6 @@ export default function HomePage() {
   }
 
   const currentNav = NAV_ITEMS.find((n) => n.id === activeTab)
-  const currentClub = clubs.find((c) => c.id === clubId)
 
   if (authLoading) {
     return (
@@ -242,14 +254,16 @@ export default function HomePage() {
               </SelectContent>
             </Select>
 
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => window.open('/kiosk', '_blank')}
-              title="Open kiosk check-in"
-            >
-              <QrCode className="h-4 w-4" />
-            </Button>
+            {currentClub && isModuleEnabled(currentClub.modules, 'attendance') && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => window.open('/kiosk', '_blank')}
+                title="Open kiosk check-in"
+              >
+                <QrCode className="h-4 w-4" />
+              </Button>
+            )}
 
             {/* Command palette trigger */}
             <button
@@ -390,6 +404,22 @@ function Sidebar({
   clubs: Club[]
   onClubChange: (id: string) => void
 }) {
+  // Find the current club so we can filter nav items by enabled modules.
+  // When clubId === 'ALL' (overview mode) we fall back to "all on" so the
+  // sidebar isn't empty — but the overview dashboard is the only useful
+  // tab in that mode anyway.
+  const currentClub = clubs.find((c) => c.id === clubId)
+
+  // A nav item is visible if:
+  //   (a) it's always-on (dashboard, clubs, settings), OR
+  //   (b) the current club is in legacy "all on" mode (modules === null), OR
+  //   (c) the module is enabled for the current club.
+  const visibleItems = NAV_ITEMS.filter((item) => {
+    if (ALWAYS_ON_TABS.includes(item.id)) return true
+    if (!currentClub) return true // 'ALL' overview mode or no club loaded yet
+    return isModuleEnabled(currentClub.modules, item.id as ModuleId)
+  })
+
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Club selector at top of sidebar (mobile + desktop) */}
@@ -415,7 +445,7 @@ function Sidebar({
       <ScrollArea className="flex-1">
         <nav className="p-3 space-y-5">
           {NAV_GROUPS.map((group) => {
-            const items = NAV_ITEMS.filter((n) => n.group === group)
+            const items = visibleItems.filter((n) => n.group === group)
             if (!items.length) return null
             return (
               <div key={group}>
@@ -443,6 +473,23 @@ function Sidebar({
               </div>
             )
           })}
+
+          {/* If the current club has very few modules enabled, show a hint
+              pointing to Settings → Modules so users know they can add more. */}
+          {currentClub && visibleItems.length <= 6 && (
+            <div className="pt-4 border-t border-border px-2">
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Need more? Add modules from{' '}
+                <button
+                  onClick={() => onTabChange('settings')}
+                  className="text-foreground link-u"
+                >
+                  Settings → Modules
+                </button>
+                .
+              </p>
+            </div>
+          )}
         </nav>
       </ScrollArea>
     </div>

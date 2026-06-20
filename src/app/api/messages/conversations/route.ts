@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { verifyModule } from '@/lib/clubhub/module-gate'
 
 // GET /api/messages/conversations?userId=...&clubId=...
 export async function GET(req: NextRequest) {
+  const __gate = await verifyModule(req, 'messages')
+  if (__gate instanceof NextResponse) return __gate
+
   const url = new URL(req.url)
   const userId = url.searchParams.get('userId')
   const clubId = url.searchParams.get('clubId')
@@ -65,6 +69,9 @@ export async function GET(req: NextRequest) {
 
 // POST /api/messages/conversations — start a new conversation
 export async function POST(req: NextRequest) {
+  const __gate = await verifyModule(req, 'messages')
+  if (__gate instanceof NextResponse) return __gate
+
   const body = await req.json()
   const { clubId, type = 'DIRECT', title, participantIds, firstMessage, senderId } = body
   if (!participantIds || participantIds.length < 2) {

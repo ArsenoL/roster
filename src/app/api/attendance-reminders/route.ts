@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { verifyModule } from '@/lib/clubhub/module-gate'
 
 /**
  * GET /api/attendance-reminders?clubId=...&eventId=...&userId=...
  */
 export async function GET(req: NextRequest) {
+  const __gate = await verifyModule(req, 'reminders')
+  if (__gate instanceof NextResponse) return __gate
+
   const url = new URL(req.url)
   const clubId = url.searchParams.get('clubId')
   const eventId = url.searchParams.get('eventId')
@@ -36,6 +40,9 @@ export async function GET(req: NextRequest) {
  *       When bulk=true, creates reminders for all members of the event's club.
  */
 export async function POST(req: NextRequest) {
+  const __gate = await verifyModule(req, 'reminders')
+  if (__gate instanceof NextResponse) return __gate
+
   const body = await req.json()
 
   if (body.bulk) {
@@ -128,6 +135,9 @@ async function createBulkReminders(body: any) {
 
 /** DELETE /api/attendance-reminders?id=... */
 export async function DELETE(req: NextRequest) {
+  const __gate = await verifyModule(req, 'reminders')
+  if (__gate instanceof NextResponse) return __gate
+
   const url = new URL(req.url)
   const id = url.searchParams.get('id')
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })

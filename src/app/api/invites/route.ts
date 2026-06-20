@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { enqueueEmail } from '@/lib/clubhub/dispatchers'
+import { verifyModule } from '@/lib/clubhub/module-gate'
 
 // GET /api/invites?clubId=...
 export async function GET(req: NextRequest) {
+  const __gate = await verifyModule(req, 'invites')
+  if (__gate instanceof NextResponse) return __gate
+
   const url = new URL(req.url)
   const clubId = url.searchParams.get('clubId')
   const where: any = {}
@@ -18,6 +22,9 @@ export async function GET(req: NextRequest) {
 
 // POST /api/invites — create one or more invites and email them
 export async function POST(req: NextRequest) {
+  const __gate = await verifyModule(req, 'invites')
+  if (__gate instanceof NextResponse) return __gate
+
   const body = await req.json()
   const { clubId, emails, role, invitedBy } = body
   if (!clubId || !Array.isArray(emails) || emails.length === 0) {

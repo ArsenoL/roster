@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { verifyModule } from '@/lib/clubhub/module-gate'
 
 // GET /api/badges?clubId=...
 export async function GET(req: NextRequest) {
+  const __gate = await verifyModule(req, 'gamification')
+  if (__gate instanceof NextResponse) return __gate
+
   const url = new URL(req.url)
   const clubId = url.searchParams.get('clubId')
   const where: any = {}
@@ -19,6 +23,9 @@ export async function GET(req: NextRequest) {
 
 // POST /api/badges — create a new badge
 export async function POST(req: NextRequest) {
+  const __gate = await verifyModule(req, 'gamification')
+  if (__gate instanceof NextResponse) return __gate
+
   const body = await req.json()
   const badge = await db.badge.create({
     data: {

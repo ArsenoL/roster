@@ -72,6 +72,9 @@ export default function LandingPage() {
             <a href="#jobs" className="text-muted-foreground hover:text-foreground transition-colors">
               What it does
             </a>
+            <a href="#modules" className="text-muted-foreground hover:text-foreground transition-colors">
+              Modules
+            </a>
             <a href="#roles" className="text-muted-foreground hover:text-foreground transition-colors">
               For your role
             </a>
@@ -125,6 +128,9 @@ export default function LandingPage() {
               </Link>
               <a href="#jobs" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-sm">
                 What it does
+              </a>
+              <a href="#modules" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-sm">
+                Modules
               </a>
               <a href="#roles" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-sm">
                 For your role
@@ -253,6 +259,68 @@ export default function LandingPage() {
                 'Scheduled email digests to members, parents, or advisors',
                 'Full audit log of every create, update, and delete',
               ]}
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* ───────────────────── Modules ─────────────────────
+          The firebase argument: you pick what you need. Nothing is
+          enabled by default beyond the three things every club has
+          (members, attendance, events). Everything else is opt-in. */}
+      <section id="modules" className="border-b border-border">
+        <div className="max-w-6xl mx-auto px-5 sm:px-8 py-20 md:py-24">
+          <div className="max-w-2xl mb-14">
+            <div className="label-mono mb-3">Modules</div>
+            <h2 className="text-3xl md:text-4xl font-semibold tracking-tight">
+              Pick what this club actually needs.
+            </h2>
+            <p className="mt-4 text-muted-foreground">
+              Roster ships with 30+ modules. None of them are on by default except the
+              three things every club has — members, attendance, events. Everything else
+              is a toggle in Settings. Turn on finance if you collect dues. Turn on
+              volunteer hours if you&apos;re a service club. Turn on inventory if you have
+              equipment. Leave the rest off — they don&apos;t clutter the sidebar, they
+              don&apos;t show up in onboarding, they don&apos;t confuse new members.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-border border border-border">
+            <ModuleCard
+              header="Always on"
+              tone="Core"
+              items={[
+                'Members — the roster itself',
+                'Attendance — manual roll, kiosk check-in',
+                'Events — when meetings happen',
+              ]}
+              footer="The literal definition of a club. Can\'t be turned off."
+            />
+            <ModuleCard
+              header="Turn on if you need it"
+              tone="Opt-in"
+              items={[
+                'Finance — dues, expenses, balances',
+                'Volunteer hours — for service clubs',
+                'Inventory — for clubs with equipment',
+                'Forms & surveys — waivers, feedback',
+                'Announcements — if you don\'t use a group chat',
+                'Tasks — if your exec team shares work',
+              ]}
+              footer="20+ more available. Toggle from Settings → Modules anytime."
+            />
+            <ModuleCard
+              header="Off by default, on purpose"
+              tone="Won't appear"
+              items={[
+                'Parent portal — most high school clubs don\'t need it',
+                'Gamification — engagement points & badges',
+                'Photo albums — event galleries',
+                'Polls & elections',
+                'Meeting minutes — for secretary-heavy clubs',
+                'Integrations — webhooks & API keys',
+              ]}
+              footer="Not a judgment — just not on by default. Add what you need."
             />
           </div>
         </div>
@@ -476,6 +544,36 @@ function RoleColumn({
       >
         Continue as {role.split(' ')[0].toLowerCase()} →
       </Link>
+    </div>
+  )
+}
+
+function ModuleCard({
+  header,
+  tone,
+  items,
+  footer,
+}: {
+  header: string
+  tone: 'Core' | 'Opt-in' | "Won't appear"
+  items: string[]
+  footer: string
+}) {
+  return (
+    <div className="bg-background p-7 md:p-8 flex flex-col">
+      <div className="label-mono mb-3">{tone}</div>
+      <h3 className="text-lg font-semibold mb-4">{header}</h3>
+      <ul className="space-y-2 mb-6 flex-1">
+        {items.map((item) => (
+          <li key={item} className="flex gap-2.5 text-sm leading-relaxed">
+            <span className="text-foreground mt-2 h-px w-3 bg-foreground shrink-0" aria-hidden />
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs text-muted-foreground leading-relaxed pt-4 border-t border-border">
+        {footer}
+      </p>
     </div>
   )
 }

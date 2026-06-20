@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { verifyModule } from '@/lib/clubhub/module-gate'
 
 // GET /api/finance?clubId=...
 export async function GET(req: NextRequest) {
+  const __gate = await verifyModule(req, 'finance')
+  if (__gate instanceof NextResponse) return __gate
+
   const url = new URL(req.url)
   const clubId = url.searchParams.get('clubId')
   const period = url.searchParams.get('period') // month | semester | year | all
@@ -74,6 +78,9 @@ export async function GET(req: NextRequest) {
 
 // POST /api/finance
 export async function POST(req: NextRequest) {
+  const __gate = await verifyModule(req, 'finance')
+  if (__gate instanceof NextResponse) return __gate
+
   const body = await req.json()
   const tx = await db.transaction.create({
     data: {

@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { verifyModule } from '@/lib/clubhub/module-gate'
 
 /**
  * GET /api/attendance-excuses?clubId=...&status=PENDING|APPROVED|DENIED&userId=...
  */
 export async function GET(req: NextRequest) {
+  const __gate = await verifyModule(req, 'excuses')
+  if (__gate instanceof NextResponse) return __gate
+
   const url = new URL(req.url)
   const clubId = url.searchParams.get('clubId')
   const status = url.searchParams.get('status')
@@ -34,6 +38,9 @@ export async function GET(req: NextRequest) {
  * Creates a PENDING excuse. Parent portal or student can submit.
  */
 export async function POST(req: NextRequest) {
+  const __gate = await verifyModule(req, 'excuses')
+  if (__gate instanceof NextResponse) return __gate
+
   const body = await req.json()
   const { eventId, userId, reason, description, submittedById } = body
   if (!eventId || !userId || !reason || !submittedById) {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { CORE_MODULES } from '@/lib/clubhub/modules'
 
 // GET /api/clubs — list all clubs (with member/event counts)
 export async function GET(req: NextRequest) {
@@ -60,6 +61,9 @@ export async function POST(req: NextRequest) {
       dues: body.dues || 0,
       isPublic: body.isPublic ?? true,
       requireApproval: body.requireApproval ?? false,
+      // New clubs get the Core 3 by default unless the caller passes an
+      // explicit modules array (e.g. from onboarding picker).
+      modules: JSON.stringify(body.modules ?? CORE_MODULES),
     },
     include: {
       advisor: { select: { id: true, name: true } },

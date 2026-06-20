@@ -17,10 +17,11 @@ import { Separator } from '@/components/ui/separator'
 import {
  Settings as SettingsIcon, Sliders, Shield, Bell, Palette, Plus, Trash2, Pencil,
  QrCode, Monitor, Smartphone, MapPin, Camera, Trophy, Flame, Users, Calendar,
- Mail, MessageSquare, Clock, CheckCircle2, Webhook, Code, Plug
+ Mail, MessageSquare, Clock, CheckCircle2, Webhook, Code, Plug, Boxes, Check, Loader2
 } from 'lucide-react'
 import { FIELD_TYPES, type CustomField } from '@/lib/clubhub/types'
 import { toast } from 'sonner'
+import { MODULES, CORE_MODULES, getModulesByGroup, parseModules, type ModuleId } from '@/lib/clubhub/modules'
 
 export function SettingsTab({ clubId, clubIdForced }: { clubId: string, clubIdForced?: string }) {
  if (clubId === 'ALL' && !clubIdForced) {
@@ -36,8 +37,9 @@ export function SettingsTab({ clubId, clubIdForced }: { clubId: string, clubIdFo
 
  return (
  <Tabs defaultValue="general" className="space-y-4">
- <TabsList className="grid w-full grid-cols-2 md:grid-cols-5 max-w-3xl">
+ <TabsList className="grid w-full grid-cols-2 md:grid-cols-6 max-w-3xl">
  <TabsTrigger value="general"><Sliders className="h-3.5 w-3.5" /></TabsTrigger>
+ <TabsTrigger value="modules"><Boxes className="h-3.5 w-3.5" /></TabsTrigger>
  <TabsTrigger value="attendance"><QrCode className="h-3.5 w-3.5" /></TabsTrigger>
  <TabsTrigger value="custom-fields"><Code className="h-3.5 w-3.5" /></TabsTrigger>
  <TabsTrigger value="integrations"><Plug className="h-3.5 w-3.5" /></TabsTrigger>
@@ -45,6 +47,7 @@ export function SettingsTab({ clubId, clubIdForced }: { clubId: string, clubIdFo
  </TabsList>
 
  <TabsContent value="general"><GeneralSettings clubId={effectiveClubId} /></TabsContent>
+ <TabsContent value="modules"><ModulesSettings clubId={effectiveClubId} /></TabsContent>
  <TabsContent value="attendance"><AttendanceSettings clubId={effectiveClubId} /></TabsContent>
  <TabsContent value="custom-fields"><CustomFieldsManager clubId={effectiveClubId} /></TabsContent>
  <TabsContent value="integrations"><IntegrationsSettings clubId={effectiveClubId} /></TabsContent>
@@ -180,6 +183,130 @@ function GeneralSettings({ clubId }: { clubId: string }) {
  </Card>
  </div>
  )
+}
+
+function ModulesSettings({ clubId }: { clubId: string }) {
+  // Fetch the club itself so we can read its current modules config.
+  const { data, loading, refetch } = useFetch<{ club: any }>(`/api/clubs/${clubId}`)
+  const club = data?.club
+  const rawModules: string | null = club?.modules ?? null
+  // null = legacy club, all on. For the UI we treat that as "all enabled".
+  const parsed = parseModules(rawModules)
+  const enabledSet: Set<ModuleId> = new Set(parsed ?? MODULES.map((m) => m.id))
+  const isLegacy = parsed === null
+
+  const [saving, setSaving] = useState(false)
+
+  const toggle = async (id: ModuleId) => {
+    // Core 3 can't be unchecked.
+    if (CORE_MODULES.includes(id)) {
+      toast.error('The core modules (Members, Attendance, Events) are always on — they\'re the definition of a club.')
+      return
+    }
+    const next = new Set(enabledSet)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/clubs/${clubId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modules: Array.from(next) }),
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        toast.error(j?.error ?? 'Could not update modules.')
+        setSaving(false)
+        return
+      }
+      toast.success(next.has(id) ? `Enabled ${id}.` : `Disabled ${id}.`)
+      refetch()
+    } catch (e: any) {
+      toast.error(e?.message ?? 'Could not update modules.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading || !club) {
+    return (
+      <Card><CardContent className="py-10 flex items-center justify-center gap-3 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading modules…
+      </CardContent></Card>
+    )
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Header — explains the philosophy */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Boxes className="h-4 w-4" /> Modules</CardTitle>
+          <CardDescription>
+            Pick what this club actually needs. Toggling a module off hides its tab from the sidebar
+            and blocks its API routes — it does not delete the underlying data. The three core modules
+            are always on because they&apos;re the literal definition of a club.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="text-sm text-muted-foreground">
+            <span className="text-foreground font-medium">{enabledSet.size}</span> of {MODULES.length} modules enabled.
+            {isLegacy && (
+              <span className="ml-2 label-mono text-xs">(legacy mode — all modules on. Toggle any module off to switch to explicit mode.)</span>
+            )}
+            {saving && <span className="ml-2 text-xs">Saving…</span>}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* The picker — grouped, same UI as onboarding */}
+      <div className="space-y-5">
+        {Object.entries(getModulesByGroup()).map(([group, mods]) => {
+          if (!mods.length) return null
+          return (
+            <div key={group}>
+              <div className="label-mono text-xs text-muted-foreground mb-2 px-1">{group}</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-px bg-border border border-border">
+                {mods.map((m) => {
+                  const checked = enabledSet.has(m.id)
+                  const locked = CORE_MODULES.includes(m.id)
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => toggle(m.id)}
+                      disabled={locked || saving}
+                      className={`text-left p-4 bg-background transition-colors ${
+                        locked ? 'cursor-default' : 'hover:bg-muted/50'
+                      } ${saving ? 'opacity-50' : ''}`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className={`mt-0.5 h-4 w-4 border flex items-center justify-center shrink-0 ${
+                          checked ? 'bg-foreground border-foreground' : 'border-border'
+                        }`}>
+                          {checked && <Check className="h-3 w-3 text-background" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-sm font-medium">{m.label}</span>
+                            {locked && (
+                              <span className="text-[10px] label-mono text-muted-foreground">always on</span>
+                            )}
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-0.5">{m.description}</div>
+                          <div className="text-[11px] text-muted-foreground/80 mt-1 italic">{m.goodFor}</div>
+                        </div>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 function AttendanceSettings({ clubId }: { clubId: string }) {

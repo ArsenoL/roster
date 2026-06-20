@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { verifyModule } from '@/lib/clubhub/module-gate'
 
 // GET /api/maintenance?itemId=...&clubId=...
 export async function GET(req: NextRequest) {
+  const __gate = await verifyModule(req, 'maintenance')
+  if (__gate instanceof NextResponse) return __gate
+
   const url = new URL(req.url)
   const itemId = url.searchParams.get('itemId')
   const clubId = url.searchParams.get('clubId')
@@ -25,6 +29,9 @@ export async function GET(req: NextRequest) {
 
 // POST /api/maintenance — log a maintenance event
 export async function POST(req: NextRequest) {
+  const __gate = await verifyModule(req, 'maintenance')
+  if (__gate instanceof NextResponse) return __gate
+
   const body = await req.json()
   const log = await db.maintenanceLog.create({
     data: {

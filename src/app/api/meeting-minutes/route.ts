@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { verifyModule } from '@/lib/clubhub/module-gate'
 
 // GET /api/meeting-minutes?clubId=...&eventId=...
 export async function GET(req: NextRequest) {
+  const __gate = await verifyModule(req, 'meeting-minutes')
+  if (__gate instanceof NextResponse) return __gate
+
   const url = new URL(req.url)
   const clubId = url.searchParams.get('clubId')
   const eventId = url.searchParams.get('eventId')
@@ -24,6 +28,9 @@ export async function GET(req: NextRequest) {
 
 // POST /api/meeting-minutes — create or update by eventId
 export async function POST(req: NextRequest) {
+  const __gate = await verifyModule(req, 'meeting-minutes')
+  if (__gate instanceof NextResponse) return __gate
+
   const body = await req.json()
   const data = {
     eventId: body.eventId,

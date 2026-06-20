@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { emitWebhook } from '@/lib/clubhub/dispatchers'
+import { verifyModule } from '@/lib/clubhub/module-gate'
 
 // GET /api/ai-insights?clubId=...
 export async function GET(req: NextRequest) {
+  const __gate = await verifyModule(req, 'insights')
+  if (__gate instanceof NextResponse) return __gate
+
   const url = new URL(req.url)
   const clubId = url.searchParams.get('clubId')
   const includeResolved = url.searchParams.get('includeResolved') === 'true'
@@ -34,6 +38,9 @@ export async function GET(req: NextRequest) {
  * If LLM is unavailable or fails, we fall back to the heuristic-only output.
  */
 export async function POST(req: NextRequest) {
+  const __gate = await verifyModule(req, 'insights')
+  if (__gate instanceof NextResponse) return __gate
+
   const body = await req.json()
   const clubId = body.clubId
   const useLLM = body.useLLM !== false  // default true
@@ -357,6 +364,9 @@ const InsightTypeEnumMap: Record<string, boolean> = {
 
 // Resolve an insight
 export async function PATCH(req: NextRequest) {
+  const __gate = await verifyModule(req, 'insights')
+  if (__gate instanceof NextResponse) return __gate
+
   const body = await req.json()
   const i = await db.aiInsight.update({
     where: { id: body.id },
