@@ -1,0 +1,328 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ============================================================
+   Roster — Utilitarian / Civic design system
+   References: USDS Public Sans, Stripe Atlas docs, early Linear
+   Principles:
+   - One accent color (a confident government blue)
+   - Sharp corners (radius: 0)
+   - Ruled lines instead of shadows
+   - No gradients. No blur. No glass. No grid pattern.
+   - Public Sans for body+headings, IBM Plex Mono for data
+   ============================================================ */
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-public-sans);
+  --font-mono: var(--font-plex-mono);
+
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+
+  /* Sharp corners — civic forms have sharp corners */
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+
+  /* Legacy brand tokens aliased to the single accent so existing
+     components keep rendering without per-file edits. We will strip
+     these references screen-by-screen. */
+  --color-brand: var(--accent);
+  --color-brand-soft: var(--muted);
+  --color-brand-ink: var(--accent-foreground);
+  --color-accent-gold: var(--accent-warn);
+  --color-accent-gold-soft: var(--muted);
+}
+
+:root {
+  /* No rounded corners anywhere */
+  --radius: 0px;
+
+  /* Light mode — neutral paper, deep ink, single blue accent */
+  --background: oklch(0.985 0.002 240);        /* off-white, slightly cool */
+  --foreground: oklch(0.18 0.01 240);           /* deep ink, not pure black */
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.01 240);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.01 240);
+
+  /* The one accent — a confident government blue */
+  --accent: oklch(0.45 0.18 255);
+  --accent-foreground: oklch(0.99 0 0);
+
+  /* Status colors — used for status only, never decoration */
+  --accent-warn: oklch(0.62 0.16 65);          /* amber for warnings */
+  --accent-good: oklch(0.5 0.13 150);          /* green for success */
+  --accent-bad:  oklch(0.55 0.22 25);          /* red for errors */
+
+  --primary: var(--accent);
+  --primary-foreground: oklch(0.99 0 0);
+
+  --secondary: oklch(0.95 0.004 240);
+  --secondary-foreground: oklch(0.22 0.01 240);
+  --muted: oklch(0.95 0.004 240);
+  --muted-foreground: oklch(0.45 0.01 240);
+
+  --destructive: oklch(0.55 0.22 25);
+  --border: oklch(0.86 0.005 240);             /* real, visible borders */
+  --input: oklch(0.86 0.005 240);
+  --ring: var(--accent);
+
+  /* Chart palette — restrained, accessible, no rainbow */
+  --chart-1: oklch(0.45 0.18 255);             /* blue (primary) */
+  --chart-2: oklch(0.55 0.13 150);             /* green */
+  --chart-3: oklch(0.62 0.16 65);              /* amber */
+  --chart-4: oklch(0.55 0.22 25);              /* red */
+  --chart-5: oklch(0.5 0.1 280);               /* violet */
+
+  --sidebar: oklch(0.97 0.003 240);
+  --sidebar-foreground: oklch(0.22 0.01 240);
+  --sidebar-primary: var(--accent);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.93 0.01 240);
+  --sidebar-accent-foreground: oklch(0.18 0.01 240);
+  --sidebar-border: oklch(0.86 0.005 240);
+  --sidebar-ring: var(--accent);
+}
+
+.dark {
+  /* Dark mode — same civic feel, inverted */
+  --background: oklch(0.16 0.005 240);
+  --foreground: oklch(0.95 0.003 240);
+
+  --card: oklch(0.2 0.005 240);
+  --card-foreground: oklch(0.95 0.003 240);
+  --popover: oklch(0.2 0.005 240);
+  --popover-foreground: oklch(0.95 0.003 240);
+
+  --accent: oklch(0.7 0.16 255);               /* lighter blue for dark bg */
+  --accent-foreground: oklch(0.16 0.005 240);
+  --accent-warn: oklch(0.78 0.15 65);
+  --accent-good: oklch(0.72 0.14 150);
+  --accent-bad:  oklch(0.68 0.19 25);
+
+  --primary: var(--accent);
+  --primary-foreground: oklch(0.16 0.005 240);
+
+  --secondary: oklch(0.26 0.005 240);
+  --secondary-foreground: oklch(0.92 0.003 240);
+  --muted: oklch(0.24 0.005 240);
+  --muted-foreground: oklch(0.68 0.005 240);
+
+  --destructive: oklch(0.68 0.19 25);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: var(--accent);
+
+  --chart-1: oklch(0.7 0.16 255);
+  --chart-2: oklch(0.72 0.14 150);
+  --chart-3: oklch(0.78 0.15 65);
+  --chart-4: oklch(0.68 0.19 25);
+  --chart-5: oklch(0.7 0.13 280);
+
+  --sidebar: oklch(0.18 0.005 240);
+  --sidebar-foreground: oklch(0.92 0.003 240);
+  --sidebar-primary: var(--accent);
+  --sidebar-primary-foreground: oklch(0.16 0.005 240);
+  --sidebar-accent: oklch(0.24 0.005 240);
+  --sidebar-accent-foreground: oklch(0.95 0.003 240);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: var(--accent);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01", "tnum";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Headings: same family as body, just bigger and bolder.
+     No decorative display face — civic aesthetic. */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-public-sans);
+    letter-spacing: -0.011em;
+    font-weight: 600;
+  }
+
+  /* Tabular numbers everywhere data appears */
+  .num, table, .mono {
+    font-family: var(--font-plex-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Selection — solid accent, no transparency tricks */
+  ::selection {
+    background-color: var(--accent);
+    color: var(--accent-foreground);
+  }
+
+  /* Scrollbar — minimal, civic */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border: 2px solid var(--background);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--muted-foreground);
+  }
+
+  /* Focus rings — visible, sharp, no blur */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+}
+
+@layer components {
+  /* ───── LEGACY STUBS ─────
+     These class names are referenced across existing screens.
+     They are stubbed to plain solid backgrounds so the old screens
+     keep rendering without the AI-coded gradient/glass effects.
+     We will remove these stubs once every screen is rewritten. */
+
+  .bg-brand-gradient {
+    background-color: var(--accent);
+  }
+  .bg-brand-soft-gradient {
+    background-color: var(--muted);
+  }
+  .bg-grid {
+    /* no-op — civic design does not use grid overlays */
+  }
+  .bg-dot {
+    /* no-op */
+  }
+  .glass {
+    background-color: var(--card);
+    /* no backdrop-filter — civic design uses real borders, not blur */
+  }
+
+  /* ───── CIVIC UTILITIES ───── */
+
+  /* Ruled divider — the civic alternative to shadows */
+  .rule {
+    border-color: var(--border);
+  }
+  .rule-b { border-bottom: 1px solid var(--border); }
+  .rule-t { border-top: 1px solid var(--border); }
+  .rule-l { border-left: 1px solid var(--border); }
+  .rule-r { border-right: 1px solid var(--border); }
+
+  /* Form-field aesthetic — flat, ruled, no shadow */
+  .field {
+    background-color: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 0;
+  }
+  .field:focus,
+  .field:focus-within {
+    border-color: var(--accent);
+    outline: none;
+  }
+
+  /* Numeric/data label — uppercase mono, small */
+  .label-mono {
+    font-family: var(--font-plex-mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+    font-weight: 500;
+  }
+
+  /* Status pill — flat, no shadow, used only for actual status */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-family: var(--font-plex-mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.02em;
+    padding: 0.125rem 0.5rem;
+    border: 1px solid var(--border);
+    text-transform: uppercase;
+    font-weight: 500;
+  }
+  .pill-good { color: var(--accent-good); border-color: var(--accent-good); }
+  .pill-warn { color: var(--accent-warn); border-color: var(--accent-warn); }
+  .pill-bad  { color: var(--accent-bad);  border-color: var(--accent-bad); }
+
+  /* Loading — keep shimmer but simplify */
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      var(--muted) 0%,
+      var(--card) 50%,
+      var(--muted) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+  }
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  /* Subtle content transition — no transforms, just opacity */
+  .fade-in {
+    animation: fadeIn 0.15s ease-out;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  /* Underline-on-hover for inline links — civic editorial pattern */
+  .link-u {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    text-decoration-thickness: 1px;
+    text-decoration-color: var(--border);
+    transition: text-decoration-color 0.15s;
+  }
+  .link-u:hover {
+    text-decoration-color: var(--accent);
+    color: var(--accent);
+  }
+}

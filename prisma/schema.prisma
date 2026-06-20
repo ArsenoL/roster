@@ -1,0 +1,1578 @@
+// ClubHub — High School Club Attendance & Member Management Platform
+// Phase 2: Expanded into a complete Club Operating System
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// USERS — Students, leaders, advisors, admins
+// ============================================================
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  name           String
+  role           UserRole @default(STUDENT)
+  studentId      String?  // School-issued student ID
+  grade          Int?     // 9-12
+  graduationYear Int?
+  phone          String?
+  avatar         String?
+  pronouns       String?
+  house          String?  // School house / advisory group
+  status         UserStatus @default(ACTIVE)
+  bio            String?
+  interests      String?  // JSON array
+  skills         String?  // JSON array
+  socialLinks    String?  // JSON object {linkedin, github, instagram, etc}
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  memberships    Membership[]
+  attendances    Attendance[]
+  badges         UserBadge[]
+  announcements  Announcement[]
+  auditLogs      AuditLog[]
+  eventsCreated  Event[]      @relation("EventCreator")
+  checkIns       CheckIn[]    @relation("CheckInOperator")
+  parentOf       ParentGuardian[] @relation("ParentGuardianParent")
+  studentOf      ParentGuardian[] @relation("ParentGuardianStudent")
+  advisesClubs   Club[]       @relation("ClubAdvisor")
+  presidesClubs  Club[]       @relation("ClubPresident")
+  rsvps          EventRSVP[]
+  votes          PollVote[]
+  formResponses  FormResponse[]
+  tasksAssigned  Task[]       @relation("TaskAssignee")
+  tasksCreated   Task[]       @relation("TaskCreator")
+  committeesLed  Committee[]  @relation("CommitteeLead")
+  committeeMembers CommitteeMember[]
+  resourceBookings ResourceBooking[] @relation("ResourceBooker")
+  inventoryLoans InventoryLoan[]
+  documents      Document[]   @relation("DocumentUploader")
+  notifications  Notification[]
+  volunteerHours VolunteerHours[]
+  hoursApprovedBy VolunteerHours[] @relation("HoursApprover")
+  transactions   Transaction[] @relation("TransactionRecorder")
+  applications   ClubApplication[]
+  alumniProfile  AlumniProfile?
+  insights       AiInsight[]
+  readAnnouncements AnnouncementRead[]
+  sessions       UserSession[]
+  savedViews     SavedView[]
+  conversations  ConversationParticipant[]
+  sentMessages   Message[]     @relation("MessageSender")
+  maintenancePerformed MaintenanceLog[] @relation("MaintenancePerformer")
+  digestSubs     DigestSubscription[]
+  docComments    DocumentComment[] @relation("DocumentCommenter")
+  attendanceExcuses AttendanceExcuse[]
+  attendanceReminders AttendanceReminder[]
+  offboardings   MemberOffboarding[]
+  parentTokens   ParentPortalToken[] @relation("ParentPortalToken")
+  waitlistEntries EventWaitlist[]
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  SCHOOL_ADMIN
+  ADVISOR
+  CLUB_LEADER
+  STUDENT
+  PARENT
+  GUEST
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  GRADUATED
+  TRANSFERRED
+}
+
+// ============================================================
+// CLUBS — Each club is a tenant with its own settings
+// ============================================================
+model Club {
+  id           String   @id @default(cuid())
+  name         String
+  description  String?
+  category     ClubCategory
+  logo         String?
+  coverImage   String?
+  primaryColor String   @default("#10b981")
+  accentColor  String   @default("#6366f1")
+  advisorId    String?  // Faculty advisor
+  presidentId  String?  // Student president
+  meetingRoom  String?
+  defaultDay   String?  // e.g. "MONDAY"
+  defaultTime  String?  // e.g. "15:30"
+  capacity     Int      @default(50)
+  dues         Float    @default(0)
+  duesCurrency String   @default("USD")
+  isPublic     Boolean  @default(true)
+  requireApproval Boolean @default(false)
+  status       ClubStatus @default(ACTIVE)
+  slug         String?  @unique // for public portal URL
+  mission      String?
+  tags         String?  // JSON array
+  foundedYear  Int?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  members      Membership[]
+  events       Event[]
+  announcements Announcement[]
+  customFields CustomField[]
+  badges       Badge[]
+  settings     ClubSetting?
+  transactions Transaction[]
+  budgets      Budget[]
+  volunteerHours VolunteerHours[]
+  polls        Poll[]
+  forms        Form[]
+  tasks        Task[]
+  taskLists    TaskList[]
+  committees   Committee[]
+  resources    Resource[]
+  inventory    InventoryItem[]
+  documents    Document[]
+  applications ClubApplication[]
+  insights     AiInsight[]
+  webhooks     Webhook[]
+  emailTemplates EmailTemplate[]
+  meetingMinutes MeetingMinutes[]
+  alumni       AlumniProfile[]
+  apiKeys      ApiKey[]
+  emailQueue   EmailQueue[]
+  emailLogs    EmailLog[]
+  smsLogs      SmsLog[]
+  savedViews   SavedView[]
+  conversations Conversation[]
+  recurrenceRules RecurrenceRule[]
+  digestSubs   DigestSubscription[]
+  photoAlbums  PhotoAlbum[]
+  offboardings MemberOffboarding[]
+  invites      ClubInvite[]
+
+  advisor      User?    @relation("ClubAdvisor", fields: [advisorId], references: [id])
+  president    User?    @relation("ClubPresident", fields: [presidentId], references: [id])
+}
+
+enum ClubCategory {
+  ACADEMIC
+  ARTS
+  ATHLETIC
+  SERVICE
+  STEM
+  CULTURAL
+  GOVERNMENT
+  HOBBY
+  PROFESSIONAL
+  OTHER
+}
+
+enum ClubStatus {
+  ACTIVE
+  INACTIVE
+  PROBATION
+  DISBANDED
+}
+
+// ============================================================
+// MEMBERSHIPS — User <-> Club join with role + custom data
+// ============================================================
+model Membership {
+  id           String         @id @default(cuid())
+  userId       String
+  clubId       String
+  role         MembershipRole @default(MEMBER)
+  joinedAt     DateTime       @default(now())
+  leftAt       DateTime?
+  status       MembershipStatus @default(ACTIVE)
+  customData   String?        // JSON string of custom field values
+  notes        String?
+  points       Int            @default(0)
+  streak       Int            @default(0)
+  longestStreak Int           @default(0)
+
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  club         Club           @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@unique([userId, clubId])
+}
+
+enum MembershipRole {
+  PRESIDENT
+  VICE_PRESIDENT
+  SECRETARY
+  TREASURER
+  COMMITTEE_HEAD
+  MEMBER
+  PROBATIONARY
+}
+
+enum MembershipStatus {
+  ACTIVE
+  PROBATIONARY
+  ALUMNI
+  REMOVED
+}
+
+// ============================================================
+// CUSTOM FIELDS — Per-club configurable fields (insane flexibility)
+// ============================================================
+model CustomField {
+  id          String         @id @default(cuid())
+  clubId      String?
+  formId      String?        // For form-specific fields
+  name        String
+  label       String
+  type        CustomFieldType
+  options     String?        // JSON array of options for SELECT/MULTISELECT/RADIO
+  required    Boolean        @default(false)
+  defaultValue String?
+  description String?
+  sortOrder   Int            @default(0)
+  isVisible   Boolean        @default(true)
+  isEditable  Boolean        @default(true)
+  appliesTo   String         @default("member") // member | event | attendance | form
+  createdAt   DateTime       @default(now())
+
+  club        Club?          @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  form        Form?          @relation(fields: [formId], references: [id], onDelete: Cascade)
+}
+
+enum CustomFieldType {
+  TEXT
+  TEXTAREA
+  NUMBER
+  DATE
+  SELECT
+  MULTISELECT
+  RADIO
+  CHECKBOX
+  EMAIL
+  PHONE
+  URL
+  TSHIRT_SIZE
+  EMERGENCY_CONTACT
+  RATING
+  FILE
+  SIGNATURE
+}
+
+// ============================================================
+// EVENTS — Meetings, fundraisers, competitions, trips, etc.
+// ============================================================
+model Event {
+  id           String         @id @default(cuid())
+  clubId       String
+  title        String
+  description  String?
+  type         EventType
+  startTime    DateTime
+  endTime      DateTime
+  location     String?
+  capacity     Int?
+  isRequired   Boolean        @default(false)
+  isRecurring  Boolean        @default(false)
+  recurrence   String?        // iCal RRULE string
+  parentEventId String?       // For recurring instances
+  status       EventStatus    @default(SCHEDULED)
+  creatorId    String?
+  chaperoneIds String?        // JSON array of user IDs
+  checklist    String?        // JSON array of {item, done}
+  metadata     String?        // JSON blob for extra custom data
+  meetingLink  String?        // Zoom/Meet link for virtual events
+  coverImage   String?
+  isLivestreamed Boolean      @default(false)
+  agenda       String?        // markdown agenda
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime @updatedAt
+
+  club         Club           @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  creator      User?          @relation("EventCreator", fields: [creatorId], references: [id])
+  attendances  Attendance[]
+  checkIns     CheckIn[]
+  rsvps        EventRSVP[]
+  volunteerHours VolunteerHours[]
+  parent       Event?         @relation("EventSeries", fields: [parentEventId], references: [id])
+  instances    Event[]        @relation("EventSeries")
+  minutes      MeetingMinutes?
+  waitlist     EventWaitlist[]
+  excuses      AttendanceExcuse[]
+  reminders    AttendanceReminder[]
+  photoAlbums  PhotoAlbum[]
+}
+
+enum EventType {
+  MEETING
+  PRACTICE
+  REHEARSAL
+  COMPETITION
+  FUNDRAISER
+  FIELD_TRIP
+  WORKSHOP
+  SOCIAL
+  ELECTION
+  VOLUNTEER
+  STUDY_SESSION
+  PERFORMANCE
+  ELECTION_NOMINATION
+  OTHER
+}
+
+enum EventStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  POSTPONED
+  DRAFT
+}
+
+// ============================================================
+// ATTENDANCE — Per-event per-user record
+// ============================================================
+model Attendance {
+  id           String           @id @default(cuid())
+  eventId      String
+  userId       String
+  status       AttendanceStatus
+  method       AttendanceMethod?
+  checkInTime  DateTime?
+  checkOutTime DateTime?
+  notes        String?
+  excusedBy    String?
+  excusedReason String?
+  pointsEarned Int              @default(0)
+  metadata     String?          // JSON blob for custom attendance fields
+  durationMinutes Int?          // For partial attendance
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime @updatedAt
+
+  event        Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  EXCUSED
+  VIRTUAL
+  PARTIAL
+  NO_SHOW
+  PENDING
+}
+
+enum AttendanceMethod {
+  QR_CODE
+  KIOSK
+  MANUAL
+  SELF_CHECKIN
+  GEOFENCED
+  SELFIE
+  ADVISOR_MARK
+  BULK_IMPORT
+  NFC
+  BLUETOOTH_BEACON
+  BIOMETRIC
+}
+
+// ============================================================
+// CHECK-INS — Real-time check-in log (supports multiple per event)
+// ============================================================
+model CheckIn {
+  id           String   @id @default(cuid())
+  eventId      String
+  userId       String
+  type         String   @default("check-in") // check-in | check-out
+  timestamp    DateTime @default(now())
+  method       String
+  operatorId   String?
+  location     String?
+  deviceInfo   String?
+  latitude     Float?
+  longitude    Float?
+
+  event        Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  operator     User?    @relation("CheckInOperator", fields: [operatorId], references: [id])
+}
+
+// ============================================================
+// EVENT RSVP — Pre-event commitment tracking
+// ============================================================
+model EventRSVP {
+  id        String   @id @default(cuid())
+  eventId   String
+  userId    String
+  status    RSVPStatus
+  partySize Int      @default(1) // for +1s / family events
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+}
+
+enum RSVPStatus {
+  GOING
+  MAYBE
+  NOT_GOING
+  WAITLIST
+}
+
+// ============================================================
+// ANNOUNCEMENTS — Club-wide communications
+// ============================================================
+model Announcement {
+  id           String         @id @default(cuid())
+  clubId       String
+  authorId     String
+  title        String
+  content      String
+  priority     AnnouncementPriority @default(NORMAL)
+  category     String?
+  isPinned     Boolean        @default(false)
+  sendEmail    Boolean        @default(false)
+  sendSMS      Boolean        @default(false)
+  scheduledFor DateTime?
+  expiresAt    DateTime?
+  readBy       String?        // JSON array of user IDs (legacy)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime @updatedAt
+
+  club         Club           @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  author       User           @relation(fields: [authorId], references: [id])
+  reads        AnnouncementRead[]
+}
+
+model AnnouncementRead {
+  id             String   @id @default(cuid())
+  announcementId String
+  userId         String
+  readAt         DateTime @default(now())
+
+  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, userId])
+}
+
+enum AnnouncementPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+// ============================================================
+// BADGES & GAMIFICATION
+// ============================================================
+model Badge {
+  id          String   @id @default(cuid())
+  clubId      String
+  name        String
+  description String?
+  icon        String   @default("🏆")
+  color       String   @default("#f59e0b")
+  criteria    String?  // JSON criteria spec
+  points      Int      @default(0)
+  tier        String   @default("BRONZE")
+  createdAt   DateTime @default(now())
+
+  club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  userBadges  UserBadge[]
+}
+
+model UserBadge {
+  id        String   @id @default(cuid())
+  userId    String
+  badgeId   String
+  awardedAt DateTime @default(now())
+  awardedBy String?
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge     Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badgeId])
+}
+
+// ============================================================
+// CLUB SETTINGS — Granular per-club configuration
+// ============================================================
+model ClubSetting {
+  clubId                 String  @id
+  attendanceWindowBefore Int     @default(15) // minutes
+  attendanceWindowAfter  Int     @default(30)
+  enableQrCheckin        Boolean @default(true)
+  enableKioskMode        Boolean @default(true)
+  enableSelfCheckin      Boolean @default(false)
+  enableGeofencing       Boolean @default(false)
+  enableSelfieVerify     Boolean @default(false)
+  enableGamification     Boolean @default(true)
+  enableStreaks          Boolean @default(true)
+  enableLeaderboard      Boolean @default(true)
+  enableParentPortal     Boolean @default(false)
+  requireExcuseNote      Boolean @default(true)
+  autoMarkNoShow         Boolean @default(true)
+  noShowThresholdMinutes Int     @default(15)
+  defaultAttendanceStatus String @default("PRESENT")
+  enableVolunteerHours   Boolean @default(true)
+  enableDuesTracking     Boolean @default(false)
+  emailRemindersEnabled  Boolean @default(true)
+  smsRemindersEnabled    Boolean @default(false)
+  reminderHoursBefore    Int     @default(24)
+  customCss              String?
+  // Phase 2 settings
+  enableRsvp             Boolean @default(true)
+  enablePublicPortal     Boolean @default(true)
+  enableApplications     Boolean @default(false)
+  enableAlumniTracking   Boolean @default(true)
+  enableAiInsights       Boolean @default(true)
+  enableInventory        Boolean @default(true)
+  enableResources        Boolean @default(true)
+  enableForms            Boolean @default(true)
+  enablePolls            Boolean @default(true)
+  enableTasks            Boolean @default(true)
+  enableFinance          Boolean @default(true)
+  enableDocuments        Boolean @default(true)
+  enableCommittees       Boolean @default(true)
+  enableCalendarSync     Boolean @default(true)
+  timezone               String  @default("America/New_York")
+  motto                  String?
+
+  club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// AUDIT LOG — Track every change for accountability
+// ============================================================
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  action      String   // create | update | delete | login | export | etc.
+  entity      String   // Club | User | Event | Attendance | etc.
+  entityId    String?
+  clubId      String?
+  before      String?  // JSON
+  after       String?  // JSON
+  ipAddress   String?
+  userAgent   String?
+  timestamp   DateTime @default(now())
+
+  user        User?    @relation(fields: [userId], references: [id])
+}
+
+// ============================================================
+// PARENT/GUARDIAN RELATIONSHIPS
+// ============================================================
+model ParentGuardian {
+  id        String   @id @default(cuid())
+  parentId  String
+  studentId String
+  relationship String?
+  canExcuseAbsences Boolean @default(true)
+  createdAt DateTime @default(now())
+
+  parent    User     @relation("ParentGuardianParent", fields: [parentId], references: [id], onDelete: Cascade)
+  student   User     @relation("ParentGuardianStudent", fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([parentId, studentId])
+}
+
+// ============================================================
+// CLUB INVITES — Pending membership requests
+// ============================================================
+model ClubInvite {
+  id        String   @id @default(cuid())
+  clubId    String
+  email     String
+  role      MembershipRole @default(MEMBER)
+  token     String   @unique
+  invitedBy String?
+  expiresAt DateTime?
+  acceptedAt DateTime?
+  createdAt DateTime @default(now())
+
+  club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// ================= PHASE 2 MODULES ===========================
+// ============================================================
+
+// ============================================================
+// FINANCE — Transactions, budgets, dues tracking
+// ============================================================
+model Transaction {
+  id          String   @id @default(cuid())
+  clubId      String
+  type        TransactionType
+  category    String   // dues | supplies | fundraiser | equipment | travel | food | prize | other
+  amount      Float
+  description String?
+  date        DateTime @default(now())
+  recordedById String?
+  memberId    String?  // for per-member dues tracking
+  eventId     String?  // for event-linked transactions (fundraisers)
+  receiptUrl  String?
+  status      TransactionStatus @default(COMPLETED)
+  paymentMethod String?  // cash | check | card | paypal | venmo | other
+  checkNumber String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  recordedBy  User?    @relation("TransactionRecorder", fields: [recordedById], references: [id])
+  member      Membership? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+  DUE_PAYMENT
+  REFUND
+  ADJUSTMENT
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+  DISPUTED
+}
+
+model Budget {
+  id          String   @id @default(cuid())
+  clubId      String
+  name        String   // e.g. "Fall 2026 Semester"
+  category    String
+  allocated   Float
+  spent       Float    @default(0)
+  startDate   DateTime
+  endDate     DateTime?
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// VOLUNTEER HOURS — Service hour logging + approval + letters
+// ============================================================
+model VolunteerHours {
+  id           String   @id @default(cuid())
+  clubId       String
+  userId       String
+  eventId      String?  // optional link to event
+  hours        Float
+  date         DateTime
+  description  String
+  organization String?  // external org served
+  location     String?
+  supervisor   String?  // name & contact of supervisor
+  status       VolunteerHoursStatus @default(PENDING)
+  approvedById String?
+  approvedAt   DateTime?
+  rejectedReason String?
+  evidence     String?  // photo URL or doc
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  club         Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event        Event?   @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  approvedBy   User?    @relation("HoursApprover", fields: [approvedById], references: [id])
+}
+
+enum VolunteerHoursStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  DISPUTED
+}
+
+// ============================================================
+// POLLS & ELECTIONS — Voting engine
+// ============================================================
+model Poll {
+  id           String   @id @default(cuid())
+  clubId       String
+  title        String
+  description  String?
+  type         PollType
+  status       PollStatus @default(DRAFT)
+  allowMultiple Boolean @default(false)  // select multiple options
+  allowAnonymous Boolean @default(true)
+  showResults  Boolean @default(false)   // visible before close
+  startDate    DateTime @default(now())
+  endDate      DateTime
+  eventId      String?  // optional link to event
+  isOfficial   Boolean @default(false)   // official election vs casual poll
+  eligibility  String?  // JSON spec: { roles: [], grades: [] }
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  club         Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  options      PollOption[]
+  votes        PollVote[]
+}
+
+enum PollType {
+  SINGLE_CHOICE
+  MULTIPLE_CHOICE
+  RANKED_CHOICE
+  APPROVAL
+  YES_NO
+  LIKERT
+}
+
+enum PollStatus {
+  DRAFT
+  OPEN
+  CLOSED
+  ARCHIVED
+}
+
+model PollOption {
+  id        String   @id @default(cuid())
+  pollId    String
+  text      String
+  description String?
+  color     String?
+  imageUrl  String?
+  candidateUserId String?  // for elections
+  sortOrder Int      @default(0)
+
+  poll      Poll     @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  votes     PollVote[]
+}
+
+model PollVote {
+  id        String   @id @default(cuid())
+  pollId    String
+  optionId  String
+  userId    String
+  rank      Int      @default(0) // for ranked choice
+  createdAt DateTime @default(now())
+
+  poll      Poll     @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  option    PollOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([pollId, optionId, userId])
+}
+
+// ============================================================
+// FORMS & SURVEYS — Custom form builder + responses
+// ============================================================
+model Form {
+  id          String   @id @default(cuid())
+  clubId      String
+  title       String
+  description String?
+  type        FormType
+  status      FormStatus @default(DRAFT)
+  isAnonymous Boolean @default(false)
+  allowMultipleResponses Boolean @default(false)
+  deadline    DateTime?
+  eventId     String?  // link to event for RSVP-style forms
+  collectName Boolean  @default(true)
+  successMessage String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  fields      CustomField[]
+  responses   FormResponse[]
+}
+
+enum FormType {
+  SURVEY
+  FEEDBACK
+  RSVP
+  SIGNUP
+  APPLICATION
+  NOMINATION
+  TSHIRT_ORDER
+  PERMISSION_SLIP
+  ASSESSMENT
+  CUSTOM
+}
+
+enum FormStatus {
+  DRAFT
+  OPEN
+  CLOSED
+  ARCHIVED
+}
+
+model FormResponse {
+  id        String   @id @default(cuid())
+  formId    String
+  userId    String?
+  data      String   // JSON of {fieldId: value}
+  submittedAt DateTime @default(now())
+  ipAddress String?
+
+  form      Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// TASKS & COMMITTEES — Project management
+// ============================================================
+model TaskList {
+  id        String   @id @default(cuid())
+  clubId    String
+  name      String
+  color     String   @default("#6366f1")
+  sortOrder Int      @default(0)
+  isArchived Boolean @default(false)
+  createdAt DateTime @default(now())
+
+  club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  tasks     Task[]
+}
+
+model Task {
+  id          String   @id @default(cuid())
+  clubId      String
+  listId      String?
+  title       String
+  description String?
+  status      TaskStatus @default(TODO)
+  priority    TaskPriority @default(MEDIUM)
+  assigneeId  String?
+  creatorId   String?
+  committeeId String?
+  eventId     String?  // link to event
+  dueDate     DateTime?
+  estimatedMinutes Int?
+  actualMinutes Int?
+  tags        String?  // JSON array
+  checklist   String?  // JSON array of {text, done}
+  attachments String?  // JSON array of URLs
+  sortOrder   Int      @default(0)
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  list        TaskList? @relation(fields: [listId], references: [id], onDelete: SetNull)
+  assignee    User?    @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  creator     User?    @relation("TaskCreator", fields: [creatorId], references: [id])
+  committee   Committee? @relation(fields: [committeeId], references: [id], onDelete: SetNull)
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  BLOCKED
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model Committee {
+  id          String   @id @default(cuid())
+  clubId      String
+  name        String
+  description String?
+  leadId      String?
+  color       String   @default("#8b5cf6")
+  parentId    String?  // for sub-committees
+  createdAt   DateTime @default(now())
+
+  club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  lead        User?    @relation("CommitteeLead", fields: [leadId], references: [id])
+  members     CommitteeMember[]
+  tasks       Task[]
+}
+
+model CommitteeMember {
+  id           String   @id @default(cuid())
+  committeeId  String
+  userId       String
+  role         String  @default("member") // lead | member | advisor
+  joinedAt     DateTime @default(now())
+
+  committee    Committee @relation(fields: [committeeId], references: [id], onDelete: Cascade)
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([committeeId, userId])
+}
+
+// ============================================================
+// RESOURCE BOOKING — Rooms, equipment, spaces
+// ============================================================
+model Resource {
+  id          String   @id @default(cuid())
+  clubId      String
+  name        String
+  type        ResourceType
+  description String?
+  location    String?
+  capacity    Int?
+  imageUrl    String?
+  isBookable  Boolean  @default(true)
+  bookingWindowDays Int @default(90)
+  maxBookingHours Float @default(8)
+  requiresApproval Boolean @default(false)
+  contactUserId String?
+  tags        String?  // JSON array
+  createdAt   DateTime @default(now())
+
+  club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  bookings    ResourceBooking[]
+}
+
+enum ResourceType {
+  ROOM
+  VEHICLE
+  EQUIPMENT
+  SPORTS_FIELD
+  AUDITORIUM
+  LAB
+  KITCHEN
+  OUTDOOR_SPACE
+  OTHER
+}
+
+model ResourceBooking {
+  id          String   @id @default(cuid())
+  resourceId  String
+  userId      String
+  eventId     String?  // optional link to event
+  startTime   DateTime
+  endTime     DateTime
+  purpose     String?
+  status      BookingStatus @default(PENDING)
+  approvedById String?
+  approvedAt  DateTime?
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  resource    Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  user        User     @relation("ResourceBooker", fields: [userId], references: [id])
+}
+
+enum BookingStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  COMPLETED
+}
+
+// ============================================================
+// INVENTORY & LOANS — Club gear tracking
+// ============================================================
+model InventoryItem {
+  id          String   @id @default(cuid())
+  clubId      String
+  name        String
+  description String?
+  category    String   // equipment | uniform | instrument | book | tool | other
+  sku         String?
+  serialNumber String?
+  quantity    Int      @default(1)
+  quantityAvailable Int @default(1)
+  condition   ItemCondition @default(NEW)
+  purchaseDate DateTime?
+  purchasePrice Float?
+  currentValue Float?
+  location    String?
+  imageUrl    String?
+  notes       String?
+  isLoanable  Boolean  @default(true)
+  loanPeriodDays Int @default(7)
+  depositAmount Float @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  loans       InventoryLoan[]
+  maintenanceLogs MaintenanceLog[]
+}
+
+enum ItemCondition {
+  NEW
+  EXCELLENT
+  GOOD
+  FAIR
+  POOR
+  BROKEN
+  LOST
+}
+
+model InventoryLoan {
+  id          String   @id @default(cuid())
+  itemId      String
+  userId      String
+  checkoutDate DateTime @default(now())
+  dueDate     DateTime
+  returnedDate DateTime?
+  conditionAtCheckout String?
+  conditionAtReturn String?
+  depositCollected Float @default(0)
+  depositReturned Float?
+  notes       String?
+  status      LoanStatus @default(OUT)
+  createdAt   DateTime @default(now())
+
+  item        InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+enum LoanStatus {
+  OUT
+  RETURNED
+  OVERDUE
+  LOST
+  DAMAGED
+}
+
+// ============================================================
+// DOCUMENT LIBRARY — File repository
+// ============================================================
+model Document {
+  id          String   @id @default(cuid())
+  clubId      String
+  title       String
+  description String?
+  category    String   // bylaws | minutes | sheet-music | code | forms | handbook | other
+  fileUrl     String?
+  fileType    String?
+  fileSize    Int?
+  version     Int      @default(1)
+  uploadedById String?
+  tags        String?  // JSON array
+  isPublic    Boolean  @default(false)
+  viewCount   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  uploadedBy  User?    @relation("DocumentUploader", fields: [uploadedById], references: [id])
+  comments    DocumentComment[]
+}
+
+model MeetingMinutes {
+  id          String   @id @default(cuid())
+  eventId     String   @unique
+  clubId      String
+  content     String   // markdown
+  attendance  String?  // JSON summary
+  decisions   String?  // JSON array of decision strings
+  actionItems String?  // JSON array of {text, assignee, due}
+  nextMeeting String?
+  recordedById String?
+  isApproved  Boolean  @default(false)
+  approvedById String?
+  approvedAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// NOTIFICATIONS — In-app notification center
+// ============================================================
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String
+  type        String   // announcement | event_reminder | task_assigned | rsvp_update | poll_open | etc.
+  title       String
+  body        String?
+  link        String?  // URL to navigate to
+  priority    String   @default("normal") // low | normal | high | urgent
+  isRead      Boolean  @default(false)
+  readAt      DateTime?
+  metadata    String?  // JSON for extra data
+  clubId      String?
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+}
+
+// ============================================================
+// ALUMNI NETWORK — Graduated member tracking
+// ============================================================
+model AlumniProfile {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  clubId       String?  // primary club
+  graduationYear Int
+  college      String?
+  major        String?
+  career       String?
+  employer     String?
+  location     String?
+  linkedin     String?
+  mentorshipAvailable Boolean @default(false)
+  mentorshipAreas String?  // JSON array
+  willingToDonate Boolean @default(false)
+  willingToSpeak Boolean @default(false)
+  newsletter   Boolean @default(true)
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  club         Club?    @relation(fields: [clubId], references: [id], onDelete: SetNull)
+}
+
+// ============================================================
+// CLUB APPLICATIONS — Recruitment & membership applications
+// ============================================================
+model ClubApplication {
+  id          String   @id @default(cuid())
+  clubId      String
+  userId      String?
+  name        String
+  email       String
+  grade       Int?
+  studentId   String?
+  phone       String?
+  responses   String   // JSON of form responses
+  status      ApplicationStatus @default(PENDING)
+  reviewedById String?
+  reviewedAt  DateTime?
+  reviewNotes String?
+  rejectionReason String?
+  invitedToJoin Boolean @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+enum ApplicationStatus {
+  PENDING
+  REVIEWING
+  ACCEPTED
+  REJECTED
+  WAITLISTED
+  INVITED
+}
+
+// ============================================================
+// AI INSIGHTS — Cached machine-generated insights
+// ============================================================
+model AiInsight {
+  id          String   @id @default(cuid())
+  clubId      String?
+  userId      String?
+  type        InsightType
+  severity    String   @default("info") // info | warning | critical
+  title       String
+  body        String
+  recommendation String?
+  data        String?  // JSON evidence
+  isResolved  Boolean  @default(false)
+  resolvedAt  DateTime?
+  createdAt   DateTime @default(now())
+
+  club        Club?    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+enum InsightType {
+  AT_RISK_MEMBER
+  ATTENDANCE_DECLINE
+  ENGAGEMENT_DROP
+  SCHEDULING_CONFLICT
+  BUDGET_WARNING
+  EQUIPMENT_OVERDUE
+  ELECTION_FRAUD_RISK
+  RECOMMEND_MEETING_TIME
+  RECOMMEND_OUTREACH
+  CAPACITY_WARNING
+  TREND_DETECTION
+}
+
+// ============================================================
+// WEBHOOKS & INTEGRATIONS
+// ============================================================
+model Webhook {
+  id          String   @id @default(cuid())
+  clubId      String
+  name        String
+  url         String
+  events      String   // JSON array of event types
+  secret      String?
+  isActive    Boolean  @default(true)
+  lastTriggeredAt DateTime?
+  lastResponseStatus Int?
+  createdAt   DateTime @default(now())
+
+  club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+}
+
+model EmailTemplate {
+  id          String   @id @default(cuid())
+  clubId      String
+  name        String
+  subject     String
+  body        String   // with merge fields {{name}}, {{club_name}}, etc.
+  type        String   // welcome | reminder | digest | custom
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  queueItems  EmailQueue[]
+}
+
+// ============================================================
+// ================= PHASE 3 MODULES ===========================
+
+// ----- AUTH: Magic-link login sessions -----
+model MagicLink {
+  id          String   @id @default(cuid())
+  email       String
+  token       String   @unique
+  clubId      String?  // optional: club-scoped login
+  role        String?  // optional: pre-assigned role on first login
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime @default(now())
+}
+
+model UserSession {
+  id          String   @id @default(cuid())
+  userId      String
+  token       String   @unique
+  ipAddress   String?
+  userAgent   String?
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ----- API KEYS for programmatic access -----
+model ApiKey {
+  id          String   @id @default(cuid())
+  clubId      String?
+  name        String
+  keyHash     String   @unique  // hashed key (never store plaintext)
+  prefix      String   // first 8 chars for identification
+  scopes      String   // JSON array of scopes
+  createdBy   String?
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  club        Club?    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+}
+
+// ----- EMAIL DELIVERY QUEUE & LOG -----
+model EmailQueue {
+  id          String   @id @default(cuid())
+  clubId      String?
+  templateId  String?
+  toEmail     String
+  toName      String?
+  fromEmail   String?
+  subject     String
+  body        String
+  mergeData   String?  // JSON
+  status      String   @default("QUEUED")  // QUEUED | SENT | FAILED | CANCELLED
+  attempts    Int      @default(0)
+  lastError   String?
+  scheduledFor DateTime @default(now())
+  sentAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  club        Club?    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  template    EmailTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+}
+
+model EmailLog {
+  id          String   @id @default(cuid())
+  clubId      String?
+  toEmail     String
+  subject     String
+  status      String   // SENT | FAILED | BOUNCED | OPENED | CLICKED
+  providerId  String?
+  error       String?
+  openedAt    DateTime?
+  clickedAt   DateTime?
+  sentAt      DateTime @default(now())
+
+  club        Club?    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+}
+
+model SmsLog {
+  id          String   @id @default(cuid())
+  clubId      String?
+  toPhone     String
+  body        String
+  status      String   // SENT | FAILED | DELIVERED
+  providerId  String?
+  error       String?
+  sentAt      DateTime @default(now())
+
+  club        Club?    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+}
+
+// ----- SAVED VIEWS per user -----
+model SavedView {
+  id          String   @id @default(cuid())
+  userId      String
+  clubId      String?
+  tab         String   // dashboard | members | events | etc.
+  name        String
+  filters     String   // JSON
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  club        Club?    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+}
+
+// ----- IN-APP MESSAGING -----
+model Conversation {
+  id          String   @id @default(cuid())
+  clubId      String?
+  type        String   @default("DIRECT")  // DIRECT | GROUP | COMMITTEE
+  title       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  club        Club?    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  participants ConversationParticipant[]
+  messages    Message[]
+}
+
+model ConversationParticipant {
+  id              String   @id @default(cuid())
+  conversationId  String
+  userId          String
+  lastReadAt      DateTime?
+  joinedAt        DateTime @default(now())
+
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+}
+
+model Message {
+  id              String   @id @default(cuid())
+  conversationId  String
+  senderId        String
+  body            String
+  attachments     String?  // JSON
+  editedAt        DateTime?
+  deletedAt       DateTime?
+  createdAt       DateTime @default(now())
+
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender          User     @relation("MessageSender", fields: [senderId], references: [id])
+}
+
+// ----- EQUIPMENT MAINTENANCE LOG -----
+model MaintenanceLog {
+  id          String   @id @default(cuid())
+  itemId      String
+  type        String   // SCHEDULED | REPAIR | INSPECTION | CLEANING | REPLACEMENT
+  status      String   @default("SCHEDULED")  // SCHEDULED | IN_PROGRESS | COMPLETED | CANCELLED
+  description String
+  cost        Float    @default(0)
+  vendor      String?
+  performedById String?
+  scheduledFor DateTime?
+  completedAt DateTime?
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  item        InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  performedBy User?     @relation("MaintenancePerformer", fields: [performedById], references: [id])
+}
+
+// ----- RECURRING EVENTS ENGINE -----
+model RecurrenceRule {
+  id          String   @id @default(cuid())
+  clubId      String
+  parentEventId String  // the template event
+  frequency   String   // DAILY | WEEKLY | BIWEEKLY | MONTHLY | YEARLY
+  interval    Int      @default(1)  // every N frequency units
+  byDays      String?  // JSON array: ["MO","WE","FR"] for weekly
+  byMonthDays String?  // JSON array of month days
+  endDate     DateTime?
+  count       Int?     // number of occurrences
+  lastGeneratedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+}
+
+// ----- WAITLIST for full events -----
+model EventWaitlist {
+  id          String   @id @default(cuid())
+  eventId     String
+  userId      String?
+  name        String
+  email       String
+  phone       String?
+  notes       String?
+  notifiedAt  DateTime?
+  promotedAt  DateTime?
+  createdAt   DateTime @default(now())
+
+  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ----- DIGEST SUBSCRIPTIONS -----
+model DigestSubscription {
+  id          String   @id @default(cuid())
+  userId      String
+  clubId      String
+  frequency   String   @default("WEEKLY")  // DAILY | WEEKLY | MONTHLY
+  dayOfWeek   Int?     // 0-6 for weekly
+  hourOfDay   Int      @default(8)  // 0-23
+  lastSentAt  DateTime?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clubId])
+}
+
+// ----- PHOTO ALBUMS -----
+model PhotoAlbum {
+  id          String   @id @default(cuid())
+  clubId      String
+  eventId     String?
+  title       String
+  description String?
+  coverPhoto  String?
+  isPublic    Boolean  @default(false)
+  uploadedById String?
+  createdAt   DateTime @default(now())
+
+  club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  event       Event?   @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  photos      Photo[]
+}
+
+model Photo {
+  id          String   @id @default(cuid())
+  albumId     String
+  url         String
+  caption     String?
+  width       Int?
+  height      Int?
+  uploadedById String?
+  uploadedAt  DateTime @default(now())
+
+  album       PhotoAlbum @relation(fields: [albumId], references: [id], onDelete: Cascade)
+}
+
+// ----- DOCUMENT COMMENTS / COLLABORATION -----
+model DocumentComment {
+  id          String   @id @default(cuid())
+  documentId  String
+  userId      String
+  body        String
+  anchor      String?  // anchor selector or position
+  resolved    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  user        User     @relation("DocumentCommenter", fields: [userId], references: [id])
+}
+
+// ----- ATTENDANCE EXCUSES (parent-approved) -----
+model AttendanceExcuse {
+  id          String   @id @default(cuid())
+  attendanceId String?
+  eventId     String
+  userId      String
+  reason      String
+  description String?
+  submittedById String  // parent or student
+  approvedById String?
+  status      String   @default("PENDING")  // PENDING | APPROVED | DENIED
+  createdAt   DateTime @default(now())
+  reviewedAt  DateTime?
+
+  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ----- ATTENDANCE REMINDERS -----
+model AttendanceReminder {
+  id          String   @id @default(cuid())
+  eventId     String
+  userId      String
+  reminderType String  // PRE_EVENT | DAY_OF | POST_EVENT_ABSENCE
+  scheduledFor DateTime
+  sentAt      DateTime?
+  channel     String   @default("EMAIL")  // EMAIL | SMS | PUSH
+  createdAt   DateTime @default(now())
+
+  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ----- MEMBER OFFBOARDING / ALUMNI TRANSITION -----
+model MemberOffboarding {
+  id          String   @id @default(cuid())
+  userId      String
+  clubId      String
+  type        String   // GRADUATION | TRANSFER | RESIGNATION | REMOVAL
+  reason      String?
+  effectiveDate DateTime
+  survey      String?  // JSON exit survey
+  farewellMessage String?
+  alumniInviteSent Boolean @default(false)
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+}
+
+// ----- PARENT PORTAL ACCESS TOKENS -----
+model ParentPortalToken {
+  id          String   @id @default(cuid())
+  parentId    String
+  token       String   @unique
+  expiresAt   DateTime?
+  lastUsedAt  DateTime?
+  createdAt   DateTime @default(now())
+
+  parent      User     @relation("ParentPortalToken", fields: [parentId], references: [id], onDelete: Cascade)
+}

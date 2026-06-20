@@ -1,0 +1,48 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { db } from '@/lib/db'
+
+export async function GET(req: NextRequest) {
+  const url = new URL(req.url)
+  const clubId = url.searchParams.get('clubId')
+
+  const where: any = {}
+  if (clubId && clubId !== 'ALL') where.clubId = clubId
+
+  const resources = await db.resource.findMany({
+    where,
+    include: {
+      bookings: {
+        include: { user: { select: { id: true, name: true } } },
+        orderBy: { startTime: 'desc' },
+        take: 10,
+      },
+      _count: { select: { bookings: true } },
+    },
+    orderBy: { name: 'asc' },
+  })
+
+  return NextResponse.json({ resources })
+}
+
+export async function POST(req: NextRequest) {
+  const body = await req.json()
+  const r = await db.resource.create({
+    data: {
+      clubId: body.clubId,
+      name: body.name,
+      type: body.type,
+      description: body.description || null,
+      location: body.location || null,
+      capacity: body.capacity || null,
+      imageUrl: body.imageUrl || null,
+      isBookable: body.isBookable ?? true,
+      bookingWindowDays: body.bookingWindowDays || 90,
+      maxBookingHours: body.maxBookingHours || 8,
+      requiresApproval: body.requiresApproval || false,
+      contactUserId: body.contactUserId || null,
+      tags: body.tags ? JSON.stringify(body.tags) : null,
+    },
+  })
+
+  return NextResponse.json(r)
+}
