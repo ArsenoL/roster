@@ -16,7 +16,18 @@ export interface AuthUser {
 }
 
 let cachedUser: AuthUser | null = null
+let cachedUserAt: number = 0  // timestamp of last server validation (ms)
 const listeners = new Set<() => void>()
+
+// Re-validate the cached user against the server at most every 2 minutes.
+// Navigations within this window trust the cache; after it, the next mount
+// re-fetches /api/auth/me. This balances two concerns:
+//   - Avoid flash-of-unauthenticated-state on every navigation (which would
+//     happen if we always re-fetched).
+//   - Detect server-side session invalidation (expired, signed out in
+//     another tab, cookie not sent on a cross-origin request) in a
+//     reasonable timeframe instead of trusting a stale cache forever.
+const CACHE_TTL_MS = 2 * 60 * 1000
 
 function emit() { listeners.forEach(l => l()) }
 
@@ -40,21 +51,38 @@ export function useAuth() {
     listeners.add(listener)
 
     async function load() {
-      if (cachedUser) {
+      // If the cache is fresh (validated within CACHE_TTL_MS), trust it.
+      // This avoids a flash of unauthenticated state on every navigation
+      // and avoids hammering /api/auth/me on every page mount.
+      const now = Date.now()
+      if (cachedUser && (now - cachedUserAt) < CACHE_TTL_MS) {
         setLoading(false)
         return
       }
+
+      // Otherwise, re-validate against the server. The cache may be stale
+      // because the session was invalidated server-side (expired, signed
+      // out in another tab, cookie not sent on a cross-origin request).
+      // Without this re-validation the UI would keep showing "signed in"
+      // while every API call 401s — the "session keeps expiring" complaint.
       try {
         const res = await fetch('/api/auth/me')
+        if (cancelled) return
         if (res.ok) {
           const d = await res.json()
-          if (!cancelled) {
-            cachedUser = d.user
-            setUser(d.user)
-          }
+          if (cancelled) return
+          const serverUser = d.user ?? null
+          cachedUser = serverUser
+          cachedUserAt = now
+          setUser(serverUser)
+          emit()
         }
       } catch (e) {
-        // ignore — user is null
+        // Network error — leave cachedUser as-is. The user might be on a
+        // flaky connection; we shouldn't sign them out just because a
+        // single fetch failed. If the session really is gone, the next
+        // API call will 401 and the global handler in apiPost will deal
+        // with it.
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -70,6 +98,7 @@ export function useAuth() {
   const logout = useCallback(async () => {
     await fetch('/api/auth/logout', { method: 'POST' })
     cachedUser = null
+    cachedUserAt = 0
     setUser(null)
     emit()
   }, [])
@@ -80,6 +109,7 @@ export function useAuth() {
       if (res.ok) {
         const d = await res.json()
         cachedUser = d.user
+        cachedUserAt = Date.now()
         setUser(d.user)
         emit()
         return d.user
@@ -89,6 +119,7 @@ export function useAuth() {
         // logged-out state. Without this, a stale cachedUser would keep
         // the UI showing "signed in" while every API call 401s.
         cachedUser = null
+        cachedUserAt = 0
         setUser(null)
         emit()
         return null
@@ -105,9 +136,13 @@ export function useAuth() {
  *  after a login/signup API returns the user object — it avoids an extra
  *  /api/auth/me round-trip and ensures any consumer that mounts
  *  immediately afterward (e.g. the destination page after a redirect)
- *  sees the user without a flash of unauthenticated state. */
+ *  sees the user without a flash of unauthenticated state.
+ *
+ *  Marks the cache as freshly validated so the next useAuth consumer
+ *  within CACHE_TTL_MS trusts it without a round-trip. */
 export function _setAuthedUser(user: AuthUser): void {
   cachedUser = user
+  cachedUserAt = Date.now()
   emit()
 }
 

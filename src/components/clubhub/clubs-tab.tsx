@@ -82,7 +82,9 @@ export function ClubsTab({ onNavigateToSettings }: { onNavigateToSettings: (club
  toast.success('Club deleted')
  refetch()
  } catch (e: any) {
- toast.error(e.message)
+ // Silent errors are 401-recovery redirects — don't show a toast,
+ // the user is already being sent to /login.
+ if (!e?.silent) toast.error(e.message)
  }
  }}
  />
@@ -100,7 +102,12 @@ export function ClubsTab({ onNavigateToSettings }: { onNavigateToSettings: (club
  setCreateOpen(false)
  refetch()
  } catch (e: any) {
- toast.error(e.message)
+ // Silent errors are 401-recovery redirects — don't show a toast,
+ // the user is already being sent to /login. Previously this just
+ // toasted e.message verbatim, which on a stale-session 401 was
+ // "Sign in to create a club" — confusing nonsense to a user who
+ // could see their own name in the top-right corner.
+ if (!e?.silent) toast.error(e.message)
  }
  }}
  />

@@ -909,3 +909,52 @@ Known follow-ups (still NOT done — left for a future pass):
 - No CSRF protection on mutating routes (relies on SameSite=lax cookie, which is good but not bulletproof). This was noted in audit-2 as well.
 - /api/clubs GET is intentionally public for the discovery page, but exposes advisor email + president name for every club. Could be redacted for non-signed-in callers.
 - No audit log on auth events (login, logout, signup, failed login).
+
+---
+Task ID: audit-3
+Agent: main (Super Z)
+Task: User reported "session keeps expiring" — the same auth bug from audit-2 was still happening. Standing instruction from audit-2: "yes ofcourse dont ask me if theres anything wrong with it, just fix it". Investigated the full auth flow end-to-end (server + client + DB) and found multiple compounding issues.
+
+Work Log:
+- Inspected the user's actual sessions in the DB: 6 sessions created in a single day (2026-06-21), all with `expiresAt = createdAt + 14d` exactly — meaning NONE of them had ever been extended by the rolling-renewal code in `getCurrentUser()`. This confirmed the user was being forced to log in repeatedly.
+- Read `src/lib/clubhub/auth.ts` (getCurrentUser, setSessionCookie, verifyToken), `src/lib/clubhub/use-auth.ts` (useAuth hook, _setAuthedUser, refresh, logout), `src/lib/clubhub/hooks.ts` (apiPost/apiPatch/apiDelete, useFetch), `src/app/api/auth/*`, `src/app/app/onboarding/page.tsx`, `src/components/clubhub/clubs-tab.tsx`, `src/components/clubhub/user-menu.tsx`, `src/app/app/page.tsx`, `src/app/app/me/page.tsx`, `prisma/schema.prisma`.
+- Wrote three diagnostic scripts under `scripts/`:
+  * `test_auth_flow.js` — exercised /api/auth/me and POST /api/clubs with a real session cookie from the DB
+  * `test_auth_flow2.js` — full signup → me → create-club → me round-trip + negative cases (missing cookie, bad signature)
+  * `test_auth_flow3.js` — verified the fixes: 1-day renewal window, rolling extension actually lands, club creation still works
+- Root-caused 5 distinct bugs (see Stage Summary). Applied all fixes directly per the standing instruction.
+
+Bugs found and fixed:
+
+1. **Fire-and-forget session renewal** (`src/lib/clubhub/auth.ts`):
+   The rolling-renewal `db.userSession.update(...)` in `getCurrentUser()` was unawaited with `.catch(() => {})`. In serverless/edge runtimes (and even in long-running Node under load), the response can be sent before the UPDATE reaches the DB — so the session never actually gets extended. The user's 6 sessions all had `expiresAt = createdAt + 14d` exactly, confirming the renewal never landed.
+   Fix: await the UPDATE. Also added a 1-day renewal window (only extend if the session is within 24h of expiring) so we're not doing a DB write on every single auth-required request — at most one renewal write per day per active user.
+
+2. **useAuth cache was authoritative instead of the server** (`src/lib/clubhub/use-auth.ts`):
+   The `load()` function short-circuited with `if (cachedUser) { setLoading(false); return }` — meaning once the cache was set (by `_setAuthedUser` after login), it was NEVER re-validated against the server. If the session was invalidated server-side (expired, signed out in another tab, cookie not sent on a cross-origin request), the UI would happily keep showing "signed in" while every API call 401'd.
+   Fix: added a `cachedUserAt` timestamp and a 2-minute TTL. Within the TTL, trust the cache (avoids hammering /api/auth/me on every navigation). After the TTL, re-validate against the server. This catches stale sessions in a reasonable timeframe without causing a flash of unauthenticated state on every page mount.
+
+3. **No global 401 recovery — each caller had to handle it individually** (`src/lib/clubhub/hooks.ts`):
+   The previous fix (audit-2) added 401 recovery to `/app/onboarding/page.tsx`'s createClub() only. Every other page that called apiPost/apiPatch/apiDelete would show the raw error message ("Sign in to create a club") as a toast — confusing nonsense to a user who could see their own name in the top-right corner.
+   Fix: added a `recoverFrom401()` helper that's called automatically by apiPost/apiPatch/apiDelete (and useFetch) on any 401. It calls /api/auth/me; if the session is still valid (race condition), it retries the original request; if the session is gone, it redirects to /login?next=<current path> and throws a silent error so callers don't show a confusing toast. Deduplicates concurrent recovery attempts with `isRefreshing` + `refreshPromise`.
+
+4. **Admin ClubsTab showed raw "Sign in to create a club" toast on 401** (`src/components/clubhub/clubs-tab.tsx`):
+   The create-club and delete-club handlers in the admin shell's ClubsTab just did `toast.error(e.message)` — which on a stale-session 401 was the API's "Sign in to create a club" message. Same bug the user originally reported, just in a different location than the onboarding page.
+   Fix: respect the `e.silent` flag from the global 401 handler — don't show a toast when the user is already being redirected to /login.
+
+5. **Orphaned sessions caused Prisma to throw** (`src/lib/clubhub/auth.ts` + `scripts/cleanup_orphan_sessions.js`):
+   SQLite doesn't enforce foreign-key cascades by default. When a User was deleted (e.g. by test cleanup scripts), their UserSession rows were left behind. Prisma's `include: { user }` then throws "Inconsistent query result: Field user is required to return data, got null instead" — which would surface as a 500 error on /api/auth/me if the user's cookie referenced one of these orphaned sessions.
+   Fix: wrapped the session lookup in try/catch; on error, deletes the orphaned session and returns null. Also added a `!session.user` check as a belt-and-suspenders guard. Ran `scripts/cleanup_orphan_sessions.js` to delete the 4 existing orphaned sessions.
+
+Stage Summary:
+- 5 auth-related bugs fixed across `src/lib/clubhub/auth.ts`, `src/lib/clubhub/use-auth.ts`, `src/lib/clubhub/hooks.ts`, `src/components/clubhub/clubs-tab.tsx`, `src/app/app/onboarding/page.tsx`.
+- Diagnostic scripts saved under `scripts/` (test_auth_flow.js, test_auth_flow2.js, test_auth_flow3.js, check_sessions.js, check_sessions2.js, cleanup_orphan_sessions.js, cleanup_audit_data.js).
+- End-to-end test (test_auth_flow3.js) confirms all fixes work: fresh session is NOT extended (within 1-day window), old session IS extended to now+14d on next request, club creation succeeds, 401 is returned for unauthenticated POST.
+- The "session keeps expiring" complaint should be resolved: the rolling renewal now actually lands (awaited), the client cache re-validates against the server every 2 minutes, and any 401 triggers automatic recovery (retry if the session is still valid, redirect to /login with `next` param if not) instead of showing a confusing "Sign in to create a club" toast.
+- Test data cleaned up: 4 orphaned sessions deleted, 20 test users deleted, 4 test clubs deleted. DB now has 252 real users, 13 sessions, 11 clubs.
+- Files modified:
+  * src/lib/clubhub/auth.ts (awaited session renewal, 1-day renewal window, orphaned-session try/catch + cleanup)
+  * src/lib/clubhub/use-auth.ts (cachedUserAt timestamp, 2-min TTL, re-validate on mount)
+  * src/lib/clubhub/hooks.ts (global recoverFrom401 helper, 401 handling in apiPost/apiPatch/apiDelete/useFetch)
+  * src/components/clubhub/clubs-tab.tsx (respect e.silent flag on create/delete)
+  * src/app/app/onboarding/page.tsx (simplified createClub catch to defer to global handler)

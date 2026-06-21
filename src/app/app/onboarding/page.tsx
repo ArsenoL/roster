@@ -100,29 +100,19 @@ export default function OnboardingPage() {
         setCreating(false)
       }
     } catch (e: any) {
-      // 401 means the session is stale or gone — the cached `user` object
-      // the onboarding page rendered against doesn't match what the server
-      // sees (e.g. cookie expired, or the user signed out in another tab).
-      // Re-validate via /api/auth/me. If the session really is gone,
-      // redirect to /login?next=/app/onboarding so they can sign back in
-      // and resume the create-club flow. If the session is somehow still
-      // valid (server fluke), surface the original error.
+      // The global 401 recovery in apiPost() handles session-expired
+      // redirects automatically — it calls /api/auth/me, and if the
+      // session is gone it redirects to /login?next=<current path> and
+      // throws a silent error. We just need to not show a confusing
+      // toast for that silent error.
       //
-      // Previously this just toasted "Sign in to create a club" — which
-      // read as nonsense to a user who could see their own name in the
-      // top-right corner. Now we either silently recover or send them
-      // through a proper sign-in flow with a `next` param that brings
-      // them right back here.
-      if (e?.status === 401) {
-        const refreshed = await refresh()
-        if (!refreshed) {
-          toast.error('Your session expired. Please sign in again.')
-          router.replace('/login?next=/app/onboarding')
-          return
-        }
-        // Session is somehow valid — fall through to generic error toast.
+      // Previously this had its own refresh() + redirect logic, but
+      // that duplicated the global handler and the two could race.
+      // Now we defer to the global handler and only surface non-silent
+      // errors (e.g. "Club name is required") as toasts.
+      if (!e?.silent) {
+        toast.error(e?.message ?? 'Could not create the club.')
       }
-      toast.error(e?.message ?? 'Could not create the club.')
       setCreating(false)
     }
   }

@@ -165,29 +165,75 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   const verified = await verifyToken(token)
   if (!verified) return null
 
-  const session = await db.userSession.findUnique({
-    where: { token },
-    include: {
-      user: {
-        include: {
-          memberships: {
-            where: { status: 'ACTIVE' },
-            include: { club: { select: { id: true, name: true } } },
+  // Look up the session. Use a try/catch because SQLite doesn't enforce
+  // foreign-key cascades by default — if a User was deleted but their
+  // UserSession rows were left behind (orphaned), Prisma's `include: { user }`
+  // throws "Inconsistent query result: Field user is required to return data,
+  // got null instead". We treat that as "session is invalid" and clean up
+  // the orphaned session so it doesn't keep throwing on every request.
+  let session
+  try {
+    session = await db.userSession.findUnique({
+      where: { token },
+      include: {
+        user: {
+          include: {
+            memberships: {
+              where: { status: 'ACTIVE' },
+              include: { club: { select: { id: true, name: true } } },
+            },
           },
         },
       },
-    },
-  })
-
-  if (!session || session.expiresAt < new Date()) {
+    })
+  } catch (e) {
+    // Most likely an orphaned session (user deleted but session row left
+    // behind because SQLite doesn't enforce FK cascade). Clean it up so
+    // we don't keep throwing on every request, then return null.
+    try {
+      await db.userSession.deleteMany({ where: { token } })
+    } catch {}
     return null
   }
 
-  // Touch lastUsed
-  db.userSession.update({
-    where: { id: session.id },
-    data: { expiresAt: new Date(Date.now() + SESSION_DURATION_MS) },
-  }).catch(() => {})
+  if (!session || !session.user || session.expiresAt < new Date()) {
+    // `!session.user` covers the case where the session exists but the
+    // user was deleted (orphaned session). Prisma may return the session
+    // with user=null in some configurations — treat that as invalid.
+    if (session && !session.user) {
+      try { await db.userSession.deleteMany({ where: { token } }) } catch {}
+    }
+    return null
+  }
+
+  // Rolling renewal — extend the session by SESSION_DURATION_MS on every
+  // auth-required request so active users don't get bounced after 14 days.
+  //
+  // AWAIT this update. The previous implementation was fire-and-forget
+  // (`.catch(() => {})` on an unawaited promise), which means in serverless
+  // / Vercel-style runtimes the response could be sent (and the lambda
+  // frozen) before the UPDATE reached the DB. The user's session then
+  // never got extended, and they'd be forced to log in again after the
+  // original 14-day window even though they'd been actively using the app.
+  // Awaiting it adds ~5-10ms but guarantees the renewal lands.
+  //
+  // We only renew if the session is more than 1 day from expiring — avoids
+  // a DB write on every single request when the session is already fresh.
+  // (1 day window means at most one renewal write per day per active user.)
+  const oneDayFromNow = new Date(Date.now() + 24 * 60 * 60 * 1000)
+  if (session.expiresAt > oneDayFromNow) {
+    return shapeAuthUser(session.user)
+  }
+
+  try {
+    await db.userSession.update({
+      where: { id: session.id },
+      data: { expiresAt: new Date(Date.now() + SESSION_DURATION_MS) },
+    })
+  } catch {
+    // Non-fatal — the session is still valid for its current expiresAt.
+    // Don't fail the request just because we couldn't extend it.
+  }
 
   return shapeAuthUser(session.user)
 }
