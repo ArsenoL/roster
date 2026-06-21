@@ -89,12 +89,39 @@ export default function OnboardingPage() {
       if (clubId) {
         toast.success('Club created. Taking you to your dashboard.')
         // Re-fetch the user so the new membership + upgraded role are
-        // reflected before we land on /app — otherwise the onboarding
-        // gate on /app would bounce them back here. `refresh()` updates
-        // cachedUser and emits to all listeners synchronously after the
-        // fetch resolves, so we can navigate immediately on completion.
-        await refresh()
-        router.push('/app')
+        // reflected before we land on the dashboard — otherwise the
+        // onboarding gate on /app would bounce them back here. `refresh()`
+        // updates cachedUser and emits to all listeners synchronously after
+        // the fetch resolves, so we can navigate immediately on completion.
+        //
+        // Use the refreshed user to compute the correct landing page
+        // (STUDENT → /app/me, PARENT → /app/parent, others → /app).
+        // Previously this hardcoded /app, which sent STUDENT users to the
+        // admin shell instead of their personal dashboard. It also raced
+        // with the onboarding gate's own redirect (which fires when the
+        // user state updates from refresh()) — the two navigations could
+        // conflict and land the user on the wrong page.
+        //
+        // If refresh() returns null (session invalid after retry, or
+        // network error), DON'T navigate to /login via
+        // defaultLandingForUser(null). Instead, stay on this page and let
+        // the global 401 handler deal with actual session invalidation.
+        // This avoids the "after I make a club it sends me back to the
+        // sign in page" bug where a transient null from /api/auth/me
+        // would immediately log the user out.
+        const refreshedUser = await refresh()
+        if (refreshedUser) {
+          router.push(defaultLandingForUser(refreshedUser))
+        } else {
+          // refresh() returned null. The club was created successfully
+          // (we got here past the apiPost), so the session WAS valid.
+          // This is likely a transient issue. Don't redirect to /login;
+          // show an error and let the user retry. The global 401
+          // handler will redirect to /login if the session is actually
+          // gone (a subsequent API call will 401).
+          toast.error('Club created, but could not refresh your session. Reload the page.')
+          setCreating(false)
+        }
       } else {
         toast.error('Could not create the club. ' + (res?.error ?? ''))
         setCreating(false)

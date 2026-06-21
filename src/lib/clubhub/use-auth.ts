@@ -65,6 +65,17 @@ export function useAuth() {
       // out in another tab, cookie not sent on a cross-origin request).
       // Without this re-validation the UI would keep showing "signed in"
       // while every API call 401s — the "session keeps expiring" complaint.
+      //
+      // CRITICAL: if the server returns a null user BUT we previously had
+      // a cached user, do NOT immediately null out the cache. There are
+      // transient cases (SQLite WAL lag, connection reuse, cookie not sent
+      // on a single request) where /api/auth/me returns null even though
+      // the session is actually valid. Immediately nulling the cache causes
+      // the auth gate to redirect to /login — the "after I make a club it
+      // sends me back to the sign in page" bug. Instead, keep the cached
+      // user and let the global 401 handler in apiPost/useFetch deal with
+      // actual session invalidation (it retries /api/auth/me and only
+      // redirects if the retry also says null).
       try {
         const res = await fetch('/api/auth/me')
         if (cancelled) return
@@ -72,10 +83,21 @@ export function useAuth() {
           const d = await res.json()
           if (cancelled) return
           const serverUser = d.user ?? null
-          cachedUser = serverUser
-          cachedUserAt = now
-          setUser(serverUser)
-          emit()
+          if (serverUser) {
+            // Server confirms we're authenticated — update the cache.
+            cachedUser = serverUser
+            cachedUserAt = now
+            setUser(serverUser)
+            emit()
+          } else if (!cachedUser) {
+            // Server says null AND we have no cached user — genuinely
+            // signed out. Set user to null so the auth gate redirects.
+            setUser(null)
+            emit()
+          }
+          // else: server says null but we have a cached user. Keep the
+          // cached user — the global 401 handler will sort it out if the
+          // session is actually gone.
         }
       } catch (e) {
         // Network error — leave cachedUser as-is. The user might be on a
@@ -104,20 +126,38 @@ export function useAuth() {
   }, [])
 
   const refresh = useCallback(async (): Promise<AuthUser | null> => {
-    try {
+    // Try /api/auth/me. If the server returns a non-null user, update the
+    // cache and return it. If the server returns null (session invalid),
+    // retry once after a short delay — there are transient cases where the
+    // first request after a server-side write (e.g. creating a club) doesn't
+    // see the updated session row yet, especially under SQLite. If the retry
+    // also returns null, the session is genuinely gone and we clear the
+    // cache so the auth gate redirects to /login.
+    const fetchMe = async (): Promise<AuthUser | null> => {
       const res = await fetch('/api/auth/me')
-      if (res.ok) {
-        const d = await res.json()
-        cachedUser = d.user
+      if (!res.ok) return null
+      const d = await res.json()
+      return d.user ?? null
+    }
+
+    try {
+      let serverUser = await fetchMe()
+      if (!serverUser) {
+        // Wait 300ms and retry once. This handles transient cases where the
+        // session row wasn't yet visible to the read query (SQLite WAL
+        // replication lag, or the request landing on a stale connection).
+        await new Promise((r) => setTimeout(r, 300))
+        serverUser = await fetchMe()
+      }
+
+      if (serverUser) {
+        cachedUser = serverUser
         cachedUserAt = Date.now()
-        setUser(d.user)
+        setUser(serverUser)
         emit()
-        return d.user
+        return serverUser
       } else {
-        // Server says we're not authenticated — clear the cache so any
-        // consumer that reads `user` from useAuth() re-renders to the
-        // logged-out state. Without this, a stale cachedUser would keep
-        // the UI showing "signed in" while every API call 401s.
+        // Session is genuinely gone after retry — clear the cache.
         cachedUser = null
         cachedUserAt = 0
         setUser(null)
@@ -125,7 +165,10 @@ export function useAuth() {
         return null
       }
     } catch (e) {
-      return null
+      // Network error — don't touch the cache. The caller can decide what
+      // to do. The global 401 handler will deal with actual session
+      // invalidation if a subsequent API call 401s.
+      return cachedUser
     }
   }, [])
 

@@ -151,30 +151,55 @@ async function recoverFrom401(): Promise<boolean> {
   }
   isRefreshing = true
   refreshPromise = (async () => {
-    try {
-      const res = await fetch('/api/auth/me')
-      if (res.ok) {
-        const d = await res.json()
-        if (d.user) {
-          // Session is actually valid — maybe the 401 was a transient
-          // race (e.g. session was being renewed when the original
-          // request came in). Tell the caller to retry.
-          return true
+    // Check /api/auth/me. If it says the session is valid (user is non-null),
+    // retry the original request. If it says null, retry ONCE after a short
+    // delay — there are transient cases (SQLite WAL lag, connection reuse,
+    // cookie not sent on a single request) where /api/auth/me returns null
+    // even though the session is actually valid. Only redirect to /login if
+    // the retry also says null.
+    //
+    // This fixes the "after I make a club it sends me back to the sign in
+    // page" bug: the user creates a club (POST succeeds), then the next
+    // request (e.g. GET /api/clubs from useFetch) 401s for a transient
+    // reason, recoverFrom401 fires, /api/auth/me transiently returns null,
+    // and the user gets redirected to /login even though they're still
+    // signed in. The retry catches the transient case.
+    const fetchMe = async (): Promise<boolean> => {
+      try {
+        const res = await fetch('/api/auth/me')
+        if (res.ok) {
+          const d = await res.json()
+          if (d.user) return true
         }
+        return false
+      } catch {
+        return false
       }
-      // Session is genuinely gone. Redirect to login, preserving the
-      // current path so the user lands back where they were after
-      // re-authenticating.
+    }
+
+    try {
+      let valid = await fetchMe()
+      if (!valid) {
+        // Wait 300ms and retry once. This handles transient cases.
+        await new Promise((r) => setTimeout(r, 300))
+        valid = await fetchMe()
+      }
+
+      if (valid) {
+        // Session is still valid — tell the caller to retry the original
+        // request.
+        return true
+      }
+
+      // Session is genuinely gone after retry. Redirect to login,
+      // preserving the current path so the user lands back where they
+      // were after re-authenticating.
       if (typeof window !== 'undefined') {
         const current = window.location.pathname + window.location.search
         // Don't redirect to /login as `next` (would create a loop).
         const next = current.startsWith('/login') ? '' : `?next=${encodeURIComponent(current)}`
         window.location.href = `/login${next}`
       }
-      return false
-    } catch {
-      // Network error during recovery — can't determine session state.
-      // Don't redirect; let the caller surface the original 401 error.
       return false
     } finally {
       isRefreshing = false
