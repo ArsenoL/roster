@@ -155,8 +155,22 @@ export default function HomePage() {
   // to see the dashboard yet (there's no club to show). Send them to onboarding
   // so they can create or join one. SUPER_ADMIN / SCHOOL_ADMIN are exempt
   // because they manage the whole tenant and don't need a club to be useful.
+  //
+  // Previously this also exempted PARENT and STUDENT users. That was wrong:
+  //  - STUDENT with no memberships has nothing to look at on /app and should
+  //    be sent to /app/onboarding so they can create or join a club. They
+  //    have their own personal dashboard at /app/me, but they get there via
+  //    defaultLandingForUser() (which returns /app/onboarding for a STUDENT
+  //    with no memberships). Skipping the gate here meant a STUDENT who
+  //    manually navigated to /app would land on an empty admin shell.
+  //  - PARENT users have their own portal at /app/parent; if they're on /app
+  //    they're in the wrong place, and the right move is to send them to
+  //    /app/parent, not let them sit on /app. But that's a separate fix;
+  //    for now, preserve the previous exemption for PARENT to avoid
+  //    surprising behavior change. The onboarding redirect for PARENT is
+  //    handled by defaultLandingForUser() at login/signup time.
   useEffect(() => {
-    if (!authLoading && user && user.role !== 'SUPER_ADMIN' && user.role !== 'SCHOOL_ADMIN' && user.role !== 'PARENT' && user.role !== 'STUDENT' && (!user.memberships || user.memberships.length === 0)) {
+    if (!authLoading && user && user.role !== 'SUPER_ADMIN' && user.role !== 'SCHOOL_ADMIN' && user.role !== 'PARENT' && (!user.memberships || user.memberships.length === 0)) {
       router.replace('/app/onboarding')
     }
   }, [authLoading, user, router])

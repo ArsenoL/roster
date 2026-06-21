@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useFetch } from '@/lib/clubhub/hooks'
 import { useDarkMode } from '@/lib/clubhub/use-dark-mode'
+import { useAuth, defaultLandingForUser } from '@/lib/clubhub/use-auth'
+import { AuthAwareLink } from '@/components/clubhub/auth-aware-link'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -19,6 +21,7 @@ import { CLUB_CATEGORIES, categoryEmoji, categoryLabel } from '@/lib/clubhub/typ
 
 export default function DiscoverPage() {
   const { dark, toggle: toggleDark } = useDarkMode()
+  const { user } = useAuth()
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('ALL')
 
@@ -45,9 +48,18 @@ export default function DiscoverPage() {
             <Button variant="ghost" size="sm" asChild className="hidden sm:flex">
               <Link href="/"><MapPin className="h-3.5 w-3.5 mr-1" /> Home</Link>
             </Button>
-            <Button variant="ghost" size="sm" asChild>
-              <Link href="/login">Sign in <ArrowRight className="h-3.5 w-3.5 ml-1" /></Link>
-            </Button>
+            {/* If signed in, the top-right CTA becomes "Dashboard" instead
+                of "Sign in" — otherwise a signed-in user clicking "Sign in"
+                would be sent to /login and see the form they don't need. */}
+            {user ? (
+              <Button variant="ghost" size="sm" asChild>
+                <Link href={defaultLandingForUser(user)}>Dashboard <ArrowRight className="h-3.5 w-3.5 ml-1" /></Link>
+              </Button>
+            ) : (
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/login">Sign in <ArrowRight className="h-3.5 w-3.5 ml-1" /></Link>
+              </Button>
+            )}
             <Button variant="ghost" size="icon" onClick={toggleDark} aria-label="Toggle dark mode">
               {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
@@ -130,7 +142,11 @@ export default function DiscoverPage() {
 
         {/* Footer */}
         <div className="text-center text-xs text-muted-foreground py-8">
-          Don't see your club? <Link href="/login?next=/app/onboarding" className="text-brand hover:underline font-medium">Create one</Link> in 60 seconds.
+          {/* AuthAwareLink: signed-in users go straight to /app/onboarding
+              to create their club; signed-out users go to /login first.
+              Previously this hard-coded /login?next=/app/onboarding which
+              sent signed-in users to the login form. */}
+          Don&apos;t see your club? <AuthAwareLink href="/app/onboarding" className="text-brand hover:underline font-medium">Create one</AuthAwareLink> in 60 seconds.
         </div>
       </main>
     </div>

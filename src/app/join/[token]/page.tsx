@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { School, Loader2, CheckCircle2, AlertCircle, PartyPopper } from 'lucide-react'
-import Link from 'next/link'
+import { AuthAwareLink } from '@/components/clubhub/auth-aware-link'
 
 export default function JoinPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params)
@@ -56,11 +56,15 @@ export default function JoinPage({ params }: { params: Promise<{ token: string }
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              You should receive a welcome email shortly. To access the full dashboard, sign in with your email using the magic-link login.
+              You should receive a welcome email shortly. Open your dashboard to see your new club.
             </p>
-            <Link href="/login">
+            {/* AuthAwareLink: signed-in users (who just accepted the invite)
+                go straight to their dashboard; signed-out users go through
+                /login first. Previously this hard-coded /login, which sent
+                an already-authenticated user to the login form. */}
+            <AuthAwareLink href="/app" className="block">
               <Button className="w-full">Go to Dashboard</Button>
-            </Link>
+            </AuthAwareLink>
           </CardContent>
         </Card>
       </div>

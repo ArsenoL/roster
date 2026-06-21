@@ -113,7 +113,13 @@ export async function apiPost(url: string, body: any) {
   })
   if (!r.ok) {
     const err = await r.json().catch(() => ({ error: r.statusText }))
-    throw new Error(err.error || `HTTP ${r.status}`)
+    // Attach the HTTP status to the thrown Error so callers can branch on it
+    // (e.g. on 401 → redirect to /login instead of showing a misleading toast).
+    // The Error message stays the API's `error` field, so existing toasts
+    // keep working unchanged.
+    const e: any = new Error(err.error || `HTTP ${r.status}`)
+    e.status = r.status
+    throw e
   }
   return r.json()
 }
@@ -126,7 +132,9 @@ export async function apiPatch(url: string, body: any) {
   })
   if (!r.ok) {
     const err = await r.json().catch(() => ({ error: r.statusText }))
-    throw new Error(err.error || `HTTP ${r.status}`)
+    const e: any = new Error(err.error || `HTTP ${r.status}`)
+    e.status = r.status
+    throw e
   }
   return r.json()
 }
@@ -135,7 +143,9 @@ export async function apiDelete(url: string) {
   const r = await fetch(url, { method: 'DELETE' })
   if (!r.ok) {
     const err = await r.json().catch(() => ({ error: r.statusText }))
-    throw new Error(err.error || `HTTP ${r.status}`)
+    const e: any = new Error(err.error || `HTTP ${r.status}`)
+    e.status = r.status
+    throw e
   }
   return r.json()
 }

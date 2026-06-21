@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '@/lib/clubhub/use-auth'
 import { useDarkMode } from '@/lib/clubhub/use-dark-mode'
+import { AuthAwareLink } from '@/components/clubhub/auth-aware-link'
 
 export default function LandingPage() {
   const { user, loading } = useAuth()
@@ -186,9 +187,14 @@ export default function LandingPage() {
 
             <div className="mt-8 flex flex-col sm:flex-row gap-3">
               <Button size="lg" asChild className="h-11 px-5 btn-vibrant">
-                <Link href="/login">
+                {/* Auth-aware: signed-in users go straight to onboarding,
+                    signed-out users go to /login?next=/app/onboarding.
+                    Previously this hardcoded /login, which meant a signed-in
+                    user clicking "Get started" would be shown the login form
+                    again — confusing and broken. */}
+                <AuthAwareLink href="/app/onboarding">
                   Get started <ArrowRight className="h-4 w-4 ml-2" />
-                </Link>
+                </AuthAwareLink>
               </Button>
               <Button size="lg" variant="outline" asChild className="h-11 px-5">
                 <Link href="/demo">Try a demo</Link>
@@ -345,10 +351,15 @@ export default function LandingPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-px bg-border border border-border">
+            {/* RoleColumn's href is now auth-aware internally: signed-in
+                users go straight to the role-specific landing page; signed-out
+                users go to /login?next=<that page>. Previously every CTA
+                hard-coded /login?next=... which sent signed-in users back to
+                the login form. */}
             <RoleColumn
               icon={GraduationCap}
               role="Club exec"
-              href="/login?next=/app/onboarding"
+              href="/app/onboarding"
               items={[
                 'Take attendance at the door',
                 'Email the week ahead to members',
@@ -359,7 +370,7 @@ export default function LandingPage() {
             <RoleColumn
               icon={School}
               role="Teacher / advisor"
-              href="/login?next=/app"
+              href="/app"
               items={[
                 'Read-only view of every club you sponsor',
                 'Step in to approve excuses or expenses',
@@ -370,7 +381,7 @@ export default function LandingPage() {
             <RoleColumn
               icon={Users}
               role="Student member"
-              href="/login?next=/app/me"
+              href="/app/me"
               items={[
                 'See your attendance, hours, and points',
                 'RSVP to upcoming events',
@@ -381,7 +392,7 @@ export default function LandingPage() {
             <RoleColumn
               icon={Heart}
               role="Parent / guardian"
-              href="/login?next=/app/parent"
+              href="/app/parent"
               items={[
                 'Token-based access — no full account needed',
                 'See your kid\u2019s attendance and upcoming events',
@@ -470,9 +481,11 @@ export default function LandingPage() {
             <Link href="/discover" className="text-muted-foreground hover:text-foreground">
               Discover
             </Link>
-            <Link href="/login" className="text-muted-foreground hover:text-foreground">
-              Sign in
-            </Link>
+            {/* Footer "Sign in" link: if the user is already signed in,
+                send them to their dashboard instead of the login form. */}
+            <AuthAwareLink href="/app" className="text-muted-foreground hover:text-foreground">
+              {user ? 'Dashboard' : 'Sign in'}
+            </AuthAwareLink>
             <Link href="/demo" className="text-muted-foreground hover:text-foreground">
               Try a demo
             </Link>
@@ -540,12 +553,15 @@ function RoleColumn({
           </li>
         ))}
       </ul>
-      <Link
+      {/* AuthAwareLink: signed-in → go straight to `href`;
+          signed-out → /login?next=<href>. Replaces a plain <Link> that
+          always pointed at /login?next=... and confused signed-in users. */}
+      <AuthAwareLink
         href={href}
         className="text-sm text-foreground link-u self-start"
       >
         Continue as {role.split(' ')[0].toLowerCase()} →
-      </Link>
+      </AuthAwareLink>
     </div>
   )
 }

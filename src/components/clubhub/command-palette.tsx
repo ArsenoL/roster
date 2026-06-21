@@ -55,13 +55,18 @@ export function CommandPalette() {
  const items: CommandItemDef[] = useMemo(() => {
  const items: CommandItemDef[] = []
 
- // Public navigation — always available
+ // Public navigation — always available. "Sign in" is only shown when
+ // the user is NOT signed in; a signed-in user running ⌘K and typing
+ // "sign" should see "Sign out" (in Quick actions below), not a useless
+ // "Sign in" entry that drops them on the login form they don't need.
  items.push(
  { label: 'Home', icon: Home, action: () => navigate('/'), group: 'Public', shortcut: '⌘H' },
  { label: 'Discover clubs', hint: 'Browse the public club directory', icon: Compass, action: () => navigate('/discover'), group: 'Public' },
  { label: 'Kiosk check-in', hint: 'Open the self-service check-in kiosk', icon: QrCode, action: () => navigate('/kiosk'), group: 'Public' },
- { label: 'Sign in', icon: LogIn, action: () => navigate('/login'), group: 'Public' },
  )
+ if (!user) {
+ items.push({ label: 'Sign in', icon: LogIn, action: () => navigate('/login'), group: 'Public' })
+ }
 
  if (user) {
  // Role-aware dashboards

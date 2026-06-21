@@ -100,6 +100,28 @@ export default function OnboardingPage() {
         setCreating(false)
       }
     } catch (e: any) {
+      // 401 means the session is stale or gone — the cached `user` object
+      // the onboarding page rendered against doesn't match what the server
+      // sees (e.g. cookie expired, or the user signed out in another tab).
+      // Re-validate via /api/auth/me. If the session really is gone,
+      // redirect to /login?next=/app/onboarding so they can sign back in
+      // and resume the create-club flow. If the session is somehow still
+      // valid (server fluke), surface the original error.
+      //
+      // Previously this just toasted "Sign in to create a club" — which
+      // read as nonsense to a user who could see their own name in the
+      // top-right corner. Now we either silently recover or send them
+      // through a proper sign-in flow with a `next` param that brings
+      // them right back here.
+      if (e?.status === 401) {
+        const refreshed = await refresh()
+        if (!refreshed) {
+          toast.error('Your session expired. Please sign in again.')
+          router.replace('/login?next=/app/onboarding')
+          return
+        }
+        // Session is somehow valid — fall through to generic error toast.
+      }
       toast.error(e?.message ?? 'Could not create the club.')
       setCreating(false)
     }

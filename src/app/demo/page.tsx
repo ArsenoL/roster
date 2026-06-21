@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { CalendarCheck, Users, DollarSign, ClipboardList, ArrowRight, ShieldCheck } from 'lucide-react'
 import { formatDate, formatTime, categoryLabel } from '@/lib/clubhub/types'
+import { AuthAwareLink } from '@/components/clubhub/auth-aware-link'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,7 +33,11 @@ export default async function DemoPage() {
             The seeded demo data isn&apos;t present. Try signing in and creating a club instead.
           </p>
           <Button asChild>
-            <Link href="/login?next=/app/onboarding">Get started</Link>
+            {/* AuthAwareLink: signed-in → go straight to onboarding;
+                signed-out → /login?next=/app/onboarding. The fallback
+                matches the previous behavior, so signed-out users still
+                see the login form. */}
+            <AuthAwareLink href="/app/onboarding">Get started</AuthAwareLink>
           </Button>
         </div>
       </div>
@@ -90,10 +95,14 @@ export default async function DemoPage() {
             >
               Browse public clubs
             </Link>
+            {/* AuthAwareLink: signed-in users go straight to /app/onboarding;
+                signed-out users go to /login?next=/app/onboarding. Previously
+                this hard-coded /login?next=... which sent signed-in users to
+                the login form. */}
             <Button size="sm" asChild>
-              <Link href="/login?next=/app/onboarding">
+              <AuthAwareLink href="/app/onboarding">
                 Start your own <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
-              </Link>
+              </AuthAwareLink>
             </Button>
           </div>
         </div>
@@ -110,7 +119,10 @@ export default async function DemoPage() {
             </span>
           </div>
           <Button size="sm" variant="outline" asChild className="shrink-0">
-            <Link href="/login">Sign in to act</Link>
+            {/* AuthAwareLink: signed-in → /app dashboard; signed-out → /login.
+                The label stays "Sign in to act" because the demo banner is
+                contextual to the demo view itself, not to auth state. */}
+            <AuthAwareLink href="/app" fallback="/login">Sign in to act</AuthAwareLink>
           </Button>
         </div>
       </div>
@@ -260,14 +272,15 @@ export default async function DemoPage() {
               title="Start your own club"
               body="Sign in with your school email, name your club, and you're running. No setup wizard, no payment."
               cta="Get started"
-              href="/login?next=/app/onboarding"
+              href="/app/onboarding"
             />
             <CtaCell
               icon={ShieldCheck}
               title="See it from the inside"
               body="If your school already runs Roster, sign in to see the clubs you're a member of."
               cta="Sign in"
-              href="/login"
+              href="/app"
+              fallback="/login"
             />
           </div>
         </section>
@@ -311,12 +324,14 @@ function CtaCell({
   body,
   cta,
   href,
+  fallback,
 }: {
   icon: React.ComponentType<{ className?: string }>
   title: string
   body: string
   cta: string
   href: string
+  fallback?: string
 }) {
   return (
     <div className="bg-background p-7 md:p-8 flex flex-col">
@@ -326,7 +341,11 @@ function CtaCell({
       </div>
       <p className="text-sm text-muted-foreground leading-relaxed mb-5 flex-1">{body}</p>
       <Button asChild className="self-start">
-        <Link href={href}>{cta}</Link>
+        {/* AuthAwareLink: signed-in → href; signed-out → fallback (or
+            /login?next=href if no fallback). Previously this was a plain
+            <Link href="/login?next=..."> that always sent signed-in users
+            to the login form. */}
+        <AuthAwareLink href={href} fallback={fallback}>{cta}</AuthAwareLink>
       </Button>
     </div>
   )

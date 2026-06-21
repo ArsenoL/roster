@@ -74,7 +74,7 @@ export function useAuth() {
     emit()
   }, [])
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (): Promise<AuthUser | null> => {
     try {
       const res = await fetch('/api/auth/me')
       if (res.ok) {
@@ -82,8 +82,20 @@ export function useAuth() {
         cachedUser = d.user
         setUser(d.user)
         emit()
+        return d.user
+      } else {
+        // Server says we're not authenticated — clear the cache so any
+        // consumer that reads `user` from useAuth() re-renders to the
+        // logged-out state. Without this, a stale cachedUser would keep
+        // the UI showing "signed in" while every API call 401s.
+        cachedUser = null
+        setUser(null)
+        emit()
+        return null
       }
-    } catch (e) {}
+    } catch (e) {
+      return null
+    }
   }, [])
 
   return { user, loading, logout, refresh }
