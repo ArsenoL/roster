@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { getCurrentUser } from '@/lib/clubhub/auth'
+import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
 import { verifyModule } from '@/lib/clubhub/module-gate'
 
+// GET /api/applications?clubId=...&status=...
+// Reading applications (which contain applicant PII) is officer-only.
 export async function GET(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const __gate = await verifyModule(req, 'applications')
   if (__gate instanceof NextResponse) return __gate
 
@@ -12,7 +17,18 @@ export async function GET(req: NextRequest) {
   const status = url.searchParams.get('status')
 
   const where: any = {}
-  if (clubId && clubId !== 'ALL') where.clubId = clubId
+  if (clubId && clubId !== 'ALL') {
+    // Reading applications (which contain applicant PII) requires members:read.
+    if (!hasPermission(user, 'members:read', clubId) && !hasPermission(user, 'club:read', clubId)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    where.clubId = clubId
+  } else if (user.role !== 'SUPER_ADMIN' && user.role !== 'SCHOOL_ADMIN') {
+    const myClubIds = user.memberships
+      .filter(m => hasPermission(user, 'members:read', m.clubId) || hasPermission(user, 'club:read', m.clubId))
+      .map(m => m.clubId)
+    where.clubId = { in: myClubIds.length > 0 ? myClubIds : ['__none__'] }
+  }
   if (status) where.status = status
 
   const apps = await db.clubApplication.findMany({
@@ -32,6 +48,8 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ applications: apps, summary })
 }
 
+// POST /api/applications — public submit form (any signed-in user can apply).
+// Auto-fills name/email/userId from the session if not provided.
 export async function POST(req: NextRequest) {
   const __gate = await verifyModule(req, 'applications')
   if (__gate instanceof NextResponse) return __gate

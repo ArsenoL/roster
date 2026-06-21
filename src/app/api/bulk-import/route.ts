@@ -1,17 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { emitWebhook } from '@/lib/clubhub/dispatchers'
+import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
 
 /**
  * POST /api/bulk-import
  * Body: { clubId, type: 'members' | 'events' | 'transactions' | 'inventory', rows: [...] }
  * Imports multiple rows for the given entity type.
+ *
+ * Requires members:write / events:write / finance:write / club:write on the
+ * target club, depending on the type. The signed-in user is recorded as the
+ * creator/recordedBy for imported rows.
  */
 export async function POST(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const body = await req.json()
   const { clubId, type, rows } = body
   if (!clubId || !type || !Array.isArray(rows)) {
     return NextResponse.json({ error: 'clubId, type, rows[] required' }, { status: 400 })
+  }
+
+  // Determine required permission based on type
+  const permMap: Record<string, string> = {
+    members: 'members:write',
+    events: 'events:write',
+    transactions: 'finance:write',
+    inventory: 'club:write',
+  }
+  const requiredPerm = permMap[type]
+  if (!requiredPerm) {
+    return NextResponse.json({ error: 'Unsupported type. Use members | events | transactions | inventory' }, { status: 400 })
+  }
+  if (!hasPermission(user, requiredPerm, clubId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   let created = 0, existing = 0, errors = 0
@@ -20,9 +43,9 @@ export async function POST(req: NextRequest) {
   if (type === 'members') {
     for (const m of rows) {
       try {
-        let user = m.email ? await db.user.findUnique({ where: { email: m.email } }) : null
-        if (!user) {
-          user = await db.user.create({
+        let u = m.email ? await db.user.findUnique({ where: { email: m.email } }) : null
+        if (!u) {
+          u = await db.user.create({
             data: {
               email: m.email || `unknown_${Date.now()}_${Math.random().toString(36).slice(2)}@import.local`,
               name: m.name || 'Unknown',
@@ -36,7 +59,7 @@ export async function POST(req: NextRequest) {
           })
         }
         const existingMem = await db.membership.findUnique({
-          where: { userId_clubId: { userId: user.id, clubId } }
+          where: { userId_clubId: { userId: u.id, clubId } }
         })
         if (existingMem) {
           existing++
@@ -44,7 +67,7 @@ export async function POST(req: NextRequest) {
           continue
         }
         await db.membership.create({
-          data: { userId: user.id, clubId, role: m.role || 'MEMBER' }
+          data: { userId: u.id, clubId, role: m.role || 'MEMBER' }
         })
         created++
         results.push({ name: m.name, status: 'created' })
@@ -98,7 +121,7 @@ export async function POST(req: NextRequest) {
             category: t.category || 'OTHER',
             description: t.description || null,
             date: t.date ? new Date(t.date) : new Date(),
-            recordedById: t.recordedById || null,
+            recordedById: user.id,  // always the signed-in user
           }
         })
         created++
@@ -138,8 +161,6 @@ export async function POST(req: NextRequest) {
         results.push({ name: i.name, status: 'error', error: e.message })
       }
     }
-  } else {
-    return NextResponse.json({ error: 'Unsupported type. Use members | events | transactions | inventory' }, { status: 400 })
   }
 
   await db.auditLog.create({
@@ -147,6 +168,7 @@ export async function POST(req: NextRequest) {
       action: 'bulk_import',
       entity: type,
       clubId,
+      userId: user.id,
       after: JSON.stringify({ created, existing, errors, total: rows.length })
     }
   })

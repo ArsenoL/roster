@@ -21,8 +21,18 @@ export async function POST(req: NextRequest) {
     url.searchParams.get('secret') ||
     (await req.json().catch(() => ({}))).secret
 
-  // If a secret is configured, require it. If not configured, allow (dev mode).
-  if (expectedSecret && providedSecret !== expectedSecret) {
+  // In production, a secret MUST be configured and provided. In dev (when no
+  // secret is set), allow unauthenticated calls so local development without
+  // env vars still works.
+  if (process.env.NODE_ENV === 'production') {
+    if (!expectedSecret) {
+      console.error('[cron/email-processor] CRON_SECRET not set in production — refusing to run')
+      return NextResponse.json({ error: 'Server misconfigured: CRON_SECRET not set' }, { status: 500 })
+    }
+    if (providedSecret !== expectedSecret) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+  } else if (expectedSecret && providedSecret !== expectedSecret) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

@@ -1,13 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
 
 // POST /api/members/bulk-import
 // Body: { clubId, members: [{ name, email, studentId, grade, ... }] }
 export async function POST(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const body = await req.json()
   const { clubId, members } = body as { clubId: string, members: any[] }
   if (!clubId || !Array.isArray(members)) {
     return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
+  }
+  // Bulk-adding members requires members:write on the target club.
+  if (!hasPermission(user, 'members:write', clubId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   const results: any[] = []
@@ -15,9 +23,9 @@ export async function POST(req: NextRequest) {
 
   for (const m of members) {
     try {
-      let user = m.email ? await db.user.findUnique({ where: { email: m.email } }) : null
-      if (!user) {
-        user = await db.user.create({
+      let u = m.email ? await db.user.findUnique({ where: { email: m.email } }) : null
+      if (!u) {
+        u = await db.user.create({
           data: {
             email: m.email || `unknown_${Date.now()}_${Math.random().toString(36).slice(2)}@import.local`,
             name: m.name || 'Unknown',
@@ -31,7 +39,7 @@ export async function POST(req: NextRequest) {
         })
       }
       const existingMem = await db.membership.findUnique({
-        where: { userId_clubId: { userId: user.id, clubId } }
+        where: { userId_clubId: { userId: u.id, clubId } }
       })
       if (existingMem) {
         existing++
@@ -39,7 +47,7 @@ export async function POST(req: NextRequest) {
         continue
       }
       await db.membership.create({
-        data: { userId: user.id, clubId, role: m.role || 'MEMBER' }
+        data: { userId: u.id, clubId, role: m.role || 'MEMBER' }
       })
       created++
       results.push({ name: m.name, status: 'created' })
@@ -54,6 +62,7 @@ export async function POST(req: NextRequest) {
       action: 'bulk_import',
       entity: 'Membership',
       clubId,
+      userId: user.id,
       after: JSON.stringify({ created, existing, errors, total: members.length })
     }
   })

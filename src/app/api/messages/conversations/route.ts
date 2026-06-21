@@ -1,16 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyModule } from '@/lib/clubhub/module-gate'
+import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
 
-// GET /api/messages/conversations?userId=...&clubId=...
+// GET /api/messages/conversations?clubId=...
+// Always scoped to the signed-in user — userId is NOT accepted as a param
+// (would be an IDOR allowing anyone to read another user's conversations).
 export async function GET(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const __gate = await verifyModule(req, 'messages')
   if (__gate instanceof NextResponse) return __gate
 
   const url = new URL(req.url)
-  const userId = url.searchParams.get('userId')
   const clubId = url.searchParams.get('clubId')
-  if (!userId) return NextResponse.json({ error: 'userId required' }, { status: 400 })
+  const userId = user.id  // always the signed-in user
 
   const participations = await db.conversationParticipant.findMany({
     where: { userId },
@@ -69,23 +74,36 @@ export async function GET(req: NextRequest) {
 
 // POST /api/messages/conversations — start a new conversation
 export async function POST(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const __gate = await verifyModule(req, 'messages')
   if (__gate instanceof NextResponse) return __gate
 
   const body = await req.json()
-  const { clubId, type = 'DIRECT', title, participantIds, firstMessage, senderId } = body
-  if (!participantIds || participantIds.length < 2) {
+  const { clubId, type = 'DIRECT', title, participantIds, firstMessage } = body
+  // Always include the signed-in user as a participant — never trust the
+  // body's senderId.
+  const participantSet = new Set<string>([user.id, ...(participantIds || [])])
+  if (participantSet.size < 2) {
     return NextResponse.json({ error: 'At least 2 participants required' }, { status: 400 })
   }
 
+  // If a clubId is provided, verify the caller can read that club.
+  if (clubId && !hasPermission(user, 'club:read', clubId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const participantArray = Array.from(participantSet)
+
   // For DIRECT conversations, check if one already exists between these 2 users
-  if (type === 'DIRECT' && participantIds.length === 2) {
+  if (type === 'DIRECT' && participantArray.length === 2) {
     const existing = await db.conversation.findFirst({
       where: {
         type: 'DIRECT',
         clubId: clubId || null,
         participants: {
-          every: { userId: { in: participantIds } },
+          every: { userId: { in: participantArray } },
         },
       },
       include: { participants: true },
@@ -102,10 +120,10 @@ export async function POST(req: NextRequest) {
       type,
       title: title || null,
       participants: {
-        create: participantIds.map((uid: string) => ({ userId: uid })),
+        create: participantArray.map((uid: string) => ({ userId: uid })),
       },
       messages: firstMessage ? {
-        create: { senderId, body: firstMessage },
+        create: { senderId: user.id, body: firstMessage },
       } : undefined,
     },
     include: {

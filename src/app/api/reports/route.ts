@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyModule } from '@/lib/clubhub/module-gate'
+import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
 
 // GET /api/reports?type=attendance|service-letter|member-directory|finance|roster&clubId=...
 export async function GET(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const __gate = await verifyModule(req, 'reports')
   if (__gate instanceof NextResponse) return __gate
 
@@ -14,6 +18,18 @@ export async function GET(req: NextRequest) {
 
   if (!clubId || clubId === 'ALL') {
     return NextResponse.json({ error: 'clubId required' }, { status: 400 })
+  }
+
+  // Reports contain PII (emails, phone numbers, student IDs, attendance
+  // history). Require club:read on the target club. Service-letter /
+  // member-summary reports are scoped to a specific userId — allow the user
+  // to fetch their own reports, otherwise require club:read.
+  if (userId && userId !== user.id) {
+    if (!hasPermission(user, 'club:read', clubId)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+  } else if (!hasPermission(user, 'club:read', clubId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   const club = await db.club.findUnique({

@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyModule } from '@/lib/clubhub/module-gate'
+import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
 
-// GET /api/volunteer-hours?clubId=...&userId=...&status=...
+// GET /api/volunteer-hours?clubId=...&status=...
+// userId filter is restricted: only the signed-in user can ask for their own
+// hours; admins can pass any userId.
 export async function GET(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const __gate = await verifyModule(req, 'volunteer')
   if (__gate instanceof NextResponse) return __gate
 
@@ -12,8 +18,23 @@ export async function GET(req: NextRequest) {
   const userId = url.searchParams.get('userId')
   const status = url.searchParams.get('status')
 
+  // Non-admins can only query their own hours.
+  if (userId && userId !== user.id && user.role !== 'SUPER_ADMIN' && user.role !== 'SCHOOL_ADMIN') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   const where: any = {}
-  if (clubId && clubId !== 'ALL') where.clubId = clubId
+  if (clubId && clubId !== 'ALL') {
+    if (!hasPermission(user, 'club:read', clubId)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    where.clubId = clubId
+  } else if (user.role !== 'SUPER_ADMIN' && user.role !== 'SCHOOL_ADMIN') {
+    const myClubIds = user.memberships
+      .filter(m => hasPermission(user, 'club:read', m.clubId))
+      .map(m => m.clubId)
+    where.clubId = { in: myClubIds.length > 0 ? myClubIds : ['__none__'] }
+  }
   if (userId) where.userId = userId
   if (status) where.status = status
 
@@ -51,16 +72,30 @@ export async function GET(req: NextRequest) {
   })
 }
 
-// POST /api/volunteer-hours
+// POST /api/volunteer-hours — log hours (self or for another member if officer)
 export async function POST(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const __gate = await verifyModule(req, 'volunteer')
   if (__gate instanceof NextResponse) return __gate
 
   const body = await req.json()
+  if (!body.clubId || !hasPermission(user, 'club:read', body.clubId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  // Determine the target user. Default to self; officers can log hours for
+  // other members (e.g. bulk entry) but must have members:write.
+  const targetUserId = body.userId || user.id
+  if (targetUserId !== user.id && !hasPermission(user, 'members:write', body.clubId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   const h = await db.volunteerHours.create({
     data: {
       clubId: body.clubId,
-      userId: body.userId,
+      userId: targetUserId,
       eventId: body.eventId || null,
       hours: parseFloat(body.hours),
       date: new Date(body.date),
@@ -79,6 +114,7 @@ export async function POST(req: NextRequest) {
       entity: 'VolunteerHours',
       entityId: h.id,
       clubId: body.clubId,
+      userId: user.id,
       after: JSON.stringify(h),
     },
   })

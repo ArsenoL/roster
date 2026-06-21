@@ -2,9 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { emitWebhook } from '@/lib/clubhub/dispatchers'
 import { verifyModule } from '@/lib/clubhub/module-gate'
+import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
 
 // GET /api/ai-insights?clubId=...
 export async function GET(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const __gate = await verifyModule(req, 'insights')
   if (__gate instanceof NextResponse) return __gate
 
@@ -13,7 +17,19 @@ export async function GET(req: NextRequest) {
   const includeResolved = url.searchParams.get('includeResolved') === 'true'
 
   const where: any = {}
-  if (clubId && clubId !== 'ALL') where.clubId = clubId
+  if (clubId && clubId !== 'ALL') {
+    // Insights require insights:read on the club (or audit:read / club:read as
+    // fallback for officers who don't have the explicit perm).
+    if (!hasPermission(user, 'insights:read', clubId) && !hasPermission(user, 'audit:read', clubId) && !hasPermission(user, 'club:read', clubId)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    where.clubId = clubId
+  } else if (user.role !== 'SUPER_ADMIN' && user.role !== 'SCHOOL_ADMIN') {
+    const myClubIds = user.memberships
+      .filter(m => hasPermission(user, 'insights:read', m.clubId) || hasPermission(user, 'audit:read', m.clubId) || hasPermission(user, 'club:read', m.clubId))
+      .map(m => m.clubId)
+    where.clubId = { in: myClubIds.length > 0 ? myClubIds : ['__none__'] }
+  }
   if (!includeResolved) where.isResolved = false
 
   const insights = await db.aiInsight.findMany({
@@ -38,12 +54,22 @@ export async function GET(req: NextRequest) {
  * If LLM is unavailable or fails, we fall back to the heuristic-only output.
  */
 export async function POST(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const __gate = await verifyModule(req, 'insights')
   if (__gate instanceof NextResponse) return __gate
 
   const body = await req.json()
   const clubId = body.clubId
   const useLLM = body.useLLM !== false  // default true
+
+  // Generating fresh insights requires insights:read (or audit:read / club:write
+  // as fallback for officers who don't have the explicit perm). Insights
+  // generation can call the LLM (costs money) — strictly officer+.
+  if (!hasPermission(user, 'insights:read', clubId) && !hasPermission(user, 'audit:read', clubId) && !hasPermission(user, 'club:write', clubId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
 
   // Clear old unresolved insights for this club
   await db.aiInsight.deleteMany({ where: { clubId, isResolved: false } })
@@ -364,10 +390,21 @@ const InsightTypeEnumMap: Record<string, boolean> = {
 
 // Resolve an insight
 export async function PATCH(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const __gate = await verifyModule(req, 'insights')
   if (__gate instanceof NextResponse) return __gate
 
   const body = await req.json()
+  // Verify the caller has permission on the insight's club.
+  const existing = await db.aiInsight.findUnique({ where: { id: body.id }, select: { clubId: true } })
+  if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (!existing.clubId) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (!hasPermission(user, 'insights:read', existing.clubId) && !hasPermission(user, 'audit:read', existing.clubId) && !hasPermission(user, 'club:write', existing.clubId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   const i = await db.aiInsight.update({
     where: { id: body.id },
     data: { isResolved: true, resolvedAt: new Date() },

@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
 
 export async function GET(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const url = new URL(req.url)
   const clubId = url.searchParams.get('clubId')
   const listId = url.searchParams.get('listId')
@@ -10,9 +14,27 @@ export async function GET(req: NextRequest) {
   const status = url.searchParams.get('status')
 
   const where: any = {}
-  if (clubId && clubId !== 'ALL') where.clubId = clubId
+  if (clubId && clubId !== 'ALL') {
+    if (!hasPermission(user, 'club:read', clubId)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    where.clubId = clubId
+  } else if (user.role !== 'SUPER_ADMIN' && user.role !== 'SCHOOL_ADMIN') {
+    const myClubIds = user.memberships
+      .filter(m => hasPermission(user, 'club:read', m.clubId))
+      .map(m => m.clubId)
+    where.clubId = { in: myClubIds.length > 0 ? myClubIds : ['__none__'] }
+  }
   if (listId) where.listId = listId
-  if (assigneeId) where.assigneeId = assigneeId
+  // Restrict assigneeId filter to the signed-in user (callers shouldn't be
+  // able to enumerate other users' tasks via this filter). Admins can pass
+  // any assigneeId.
+  if (assigneeId) {
+    if (assigneeId !== user.id && user.role !== 'SUPER_ADMIN' && user.role !== 'SCHOOL_ADMIN') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    where.assigneeId = assigneeId
+  }
   if (committeeId) where.committeeId = committeeId
   if (status) where.status = status
 
@@ -33,7 +55,6 @@ export async function GET(req: NextRequest) {
     }),
   ])
 
-  // Stats
   const stats = {
     total: tasks.length,
     todo: tasks.filter(t => t.status === 'TODO').length,
@@ -47,7 +68,14 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const body = await req.json()
+  if (!body.clubId || !hasPermission(user, 'club:write', body.clubId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   const task = await db.task.create({
     data: {
       clubId: body.clubId,
@@ -57,7 +85,7 @@ export async function POST(req: NextRequest) {
       status: body.status || 'TODO',
       priority: body.priority || 'MEDIUM',
       assigneeId: body.assigneeId || null,
-      creatorId: body.creatorId || null,
+      creatorId: user.id,  // always the signed-in user
       committeeId: body.committeeId || null,
       eventId: body.eventId || null,
       dueDate: body.dueDate ? new Date(body.dueDate) : null,

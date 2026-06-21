@@ -2,16 +2,30 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { enqueueEmail } from '@/lib/clubhub/dispatchers'
 import { verifyModule } from '@/lib/clubhub/module-gate'
+import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
 
 // GET /api/offboarding?clubId=...
 export async function GET(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const __gate = await verifyModule(req, 'offboarding')
   if (__gate instanceof NextResponse) return __gate
 
   const url = new URL(req.url)
   const clubId = url.searchParams.get('clubId')
   const where: any = {}
-  if (clubId && clubId !== 'ALL') where.clubId = clubId
+  if (clubId && clubId !== 'ALL') {
+    if (!hasPermission(user, 'members:read', clubId) && !hasPermission(user, 'club:read', clubId)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    where.clubId = clubId
+  } else if (user.role !== 'SUPER_ADMIN' && user.role !== 'SCHOOL_ADMIN') {
+    const myClubIds = user.memberships
+      .filter(m => hasPermission(user, 'members:read', m.clubId) || hasPermission(user, 'club:read', m.clubId))
+      .map(m => m.clubId)
+    where.clubId = { in: myClubIds.length > 0 ? myClubIds : ['__none__'] }
+  }
   const offboardings = await db.memberOffboarding.findMany({
     where,
     include: {
@@ -25,15 +39,11 @@ export async function GET(req: NextRequest) {
 /**
  * POST /api/offboarding — graduate/transfer/resign a member.
  * Body: { userId, clubId, type, reason, effectiveDate, farewellMessage?, survey?, inviteToAlumni? }
- *
- * Real effects:
- *   1. Marks membership status as INACTIVE / leftAt = effectiveDate
- *   2. If type=GRADUATION, transitions user.status to GRADUATED (only if no other active memberships)
- *   3. Optionally creates AlumniProfile
- *   4. Sends farewell email to the user
- *   5. Fires webhook 'member.left'
  */
 export async function POST(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const __gate = await verifyModule(req, 'offboarding')
   if (__gate instanceof NextResponse) return __gate
 
@@ -43,9 +53,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'userId, clubId, type required' }, { status: 400 })
   }
 
-  const user = await db.user.findUnique({ where: { id: userId } })
+  // Offboarding a member requires members:write on the club. The signed-in
+  // user can also offboard *themselves* (e.g. resign) without that perm.
+  const isSelf = userId === user.id
+  if (!isSelf && !hasPermission(user, 'members:write', clubId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const targetUser = await db.user.findUnique({ where: { id: userId } })
   const club = await db.club.findUnique({ where: { id: clubId } })
-  if (!user || !club) return NextResponse.json({ error: 'User or club not found' }, { status: 404 })
+  if (!targetUser || !club) return NextResponse.json({ error: 'User or club not found' }, { status: 404 })
 
   // 1. Mark membership inactive (MembershipStatus enum: ACTIVE / PROBATIONARY / ALUMNI / REMOVED — no INACTIVE).
   // We use REMOVED for offboarded members because it's the closest semantic match
@@ -88,7 +105,7 @@ export async function POST(req: NextRequest) {
         data: {
           userId,
           clubId,
-          graduationYear: user.graduationYear || new Date().getFullYear(),
+          graduationYear: targetUser.graduationYear || new Date().getFullYear(),
           mentorshipAvailable: false,
         }
       })
@@ -102,12 +119,12 @@ export async function POST(req: NextRequest) {
   // 5. Send farewell email
   if (farewellMessage) {
     await enqueueEmail({
-      toEmail: user.email,
-      toName: user.name,
-      subject: `Thank you from ${club.name} 💚`,
+      toEmail: targetUser.email,
+      toName: targetUser.name,
+      subject: `Thank you from ${club.name}`,
       body: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px">
         <h2>A heartfelt thank you from ${club.name}</h2>
-        <p>Hi ${user.name},</p>
+        <p>Hi ${targetUser.name},</p>
         <div style="white-space:pre-wrap;line-height:1.6">${farewellMessage}</div>
         <hr style="border:none;border-top:1px solid #eee;margin:20px 0" />
         <p style="color:#999;font-size:13px">You're now part of the ${club.name} alumni network. Welcome aboard!</p>
@@ -121,6 +138,7 @@ export async function POST(req: NextRequest) {
       action: 'offboard_member',
       entity: 'Membership',
       clubId,
+      userId: user.id,
       after: JSON.stringify({ userId, type, reason }),
     }
   })

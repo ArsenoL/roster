@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyModule } from '@/lib/clubhub/module-gate'
+import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
 
 /**
  * Assistant — real Gemini-powered Q&A over club data.
@@ -23,6 +24,9 @@ const GEMINI_MODEL = 'gemini-2.0-flash'
 const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`
 
 export async function POST(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const __gate = await verifyModule(req, 'insights')
   if (__gate instanceof NextResponse) return __gate
 
@@ -41,6 +45,12 @@ export async function POST(req: NextRequest) {
       { error: 'Pick a specific club first — the Assistant works on one club at a time.' },
       { status: 400 }
     )
+  }
+
+  // Assistant Q&A exposes club data — require insights:read (or audit:read /
+  // club:read as fallback) on the target club.
+  if (!hasPermission(user, 'insights:read', clubId) && !hasPermission(user, 'audit:read', clubId) && !hasPermission(user, 'club:read', clubId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   const apiKey = process.env.GEMINI_API_KEY

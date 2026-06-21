@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyModule } from '@/lib/clubhub/module-gate'
+import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
 
 // GET /api/analytics?clubId=...&from=...&to=...&view=overview|trends|heatmap|retention|comparison|engagement
 export async function GET(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const __gate = await verifyModule(req, 'analytics')
   if (__gate instanceof NextResponse) return __gate
 
@@ -13,21 +17,41 @@ export async function GET(req: NextRequest) {
   const to = url.searchParams.get('to')
   const view = url.searchParams.get('view') || 'overview'
 
+  // Permission check: if a specific club is requested, require club:read.
+  // If no club is requested (overview), scope to clubs the user can read.
+  const isAdmin = user.role === 'SUPER_ADMIN' || user.role === 'SCHOOL_ADMIN'
+  let readableClubIds: string[] = []
+  if (!isAdmin) {
+    readableClubIds = user.memberships
+      .filter(m => hasPermission(user, 'club:read', m.clubId))
+      .map(m => m.clubId)
+    if (clubId && clubId !== 'ALL') {
+      if (!readableClubIds.includes(clubId)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      }
+    }
+  }
+
   const fromDate = from ? new Date(from) : new Date(Date.now() - 180 * 86400000)
   const toDate = to ? new Date(to) : new Date()
 
   const eventWhere: any = {
     startTime: { gte: fromDate, lte: toDate },
   }
-  if (clubId && clubId !== 'ALL') eventWhere.clubId = clubId
+  if (clubId && clubId !== 'ALL') {
+    eventWhere.clubId = clubId
+  } else if (!isAdmin) {
+    eventWhere.clubId = { in: readableClubIds.length > 0 ? readableClubIds : ['__none__'] }
+  }
 
   // ============================================================
   // OVERVIEW — KPIs + summary
   // ============================================================
   if (view === 'overview') {
+    const clubCountWhere = isAdmin ? {} : { id: { in: readableClubIds.length > 0 ? readableClubIds : ['__none__'] } }
     const [totalClubs, totalMembers, totalEvents, totalAttendance, totalUsers] = await Promise.all([
-      db.club.count(),
-      db.membership.count({ where: { status: 'ACTIVE' } }),
+      db.club.count({ where: clubCountWhere }),
+      db.membership.count({ where: isAdmin ? { status: 'ACTIVE' } : { status: 'ACTIVE', clubId: { in: readableClubIds.length > 0 ? readableClubIds : ['__none__'] } } }),
       db.event.count({ where: eventWhere }),
       db.attendance.count({ where: { event: eventWhere } }),
       db.user.count({ where: { role: 'STUDENT' } }),
@@ -90,8 +114,9 @@ export async function GET(req: NextRequest) {
       rate: v.total > 0 ? Math.round((v.present / v.total) * 1000) / 10 : 0,
     }))
 
-    // Per-club comparison
-    const clubs = await db.club.findMany({ select: { id: true, name: true, primaryColor: true } })
+    // Per-club comparison — scope to readable clubs
+    const clubFilter = isAdmin ? {} : { id: { in: readableClubIds.length > 0 ? readableClubIds : ['__none__'] } }
+    const clubs = await db.club.findMany({ where: clubFilter, select: { id: true, name: true, primaryColor: true } })
     const perClub = await Promise.all(clubs.map(async (c) => {
       const clubEvents = await db.event.findMany({
         where: { clubId: c.id, startTime: { gte: fromDate, lte: toDate } },
@@ -140,8 +165,11 @@ export async function GET(req: NextRequest) {
   // RETENTION — cohort analysis by join month
   // ============================================================
   if (view === 'retention') {
+    const retentionWhere = clubId && clubId !== 'ALL'
+      ? { clubId }
+      : !isAdmin ? { clubId: { in: readableClubIds.length > 0 ? readableClubIds : ['__none__'] } } : {}
     const memberships = await db.membership.findMany({
-      where: clubId && clubId !== 'ALL' ? { clubId } : {},
+      where: retentionWhere,
       select: { joinedAt: true, userId: true, clubId: true, leftAt: true }
     })
     // Group by join month
@@ -165,8 +193,11 @@ export async function GET(req: NextRequest) {
   // ENGAGEMENT — per-member stats, at-risk members
   // ============================================================
   if (view === 'engagement') {
+    const engWhere: any = clubId && clubId !== 'ALL'
+      ? { clubId, status: 'ACTIVE' }
+      : !isAdmin ? { status: 'ACTIVE', clubId: { in: readableClubIds.length > 0 ? readableClubIds : ['__none__'] } } : { status: 'ACTIVE' }
     const memberships = await db.membership.findMany({
-      where: clubId && clubId !== 'ALL' ? { clubId, status: 'ACTIVE' } : { status: 'ACTIVE' },
+      where: engWhere,
       include: {
         user: { select: { id: true, name: true, email: true, grade: true, studentId: true } },
         club: { select: { id: true, name: true, primaryColor: true } },
@@ -218,7 +249,9 @@ export async function GET(req: NextRequest) {
   // COMPARISON — club vs club on multiple metrics
   // ============================================================
   if (view === 'comparison') {
+    const clubFilter = isAdmin ? {} : { id: { in: readableClubIds.length > 0 ? readableClubIds : ['__none__'] } }
     const clubs = await db.club.findMany({
+      where: clubFilter,
       include: {
         _count: { select: { members: true, events: true } },
       }

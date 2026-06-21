@@ -1,8 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // Resolve resource → clubId and verify read access.
+  const resource = await db.resource.findUnique({ where: { id }, select: { clubId: true } })
+  if (!resource) return NextResponse.json({ error: 'Resource not found' }, { status: 404 })
+  if (!hasPermission(user, 'club:read', resource.clubId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   const url = new URL(req.url)
   const upcoming = url.searchParams.get('upcoming') === 'true'
 
@@ -20,6 +31,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const resource = await db.resource.findUnique({ where: { id }, select: { clubId: true, requiresApproval: true } })
+  if (!resource) return NextResponse.json({ error: 'Resource not found' }, { status: 404 })
+  // Booking requires club:read (members can book resources). Approval flow
+  // is handled by the requiresApproval flag on the resource.
+  if (!hasPermission(user, 'club:read', resource.clubId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   const body = await req.json()
 
   // Check for conflicts
@@ -41,18 +63,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: 'Time conflicts with existing booking' }, { status: 409 })
   }
 
-  const resource = await db.resource.findUnique({ where: { id } })
-  const requiresApproval = resource?.requiresApproval || false
-
   const booking = await db.resourceBooking.create({
     data: {
       resourceId: id,
-      userId: body.userId,
+      userId: user.id,  // always the signed-in user
       eventId: body.eventId || null,
       startTime: start,
       endTime: end,
       purpose: body.purpose || null,
-      status: requiresApproval ? 'PENDING' : 'APPROVED',
+      status: resource.requiresApproval ? 'PENDING' : 'APPROVED',
       notes: body.notes || null,
     },
   })

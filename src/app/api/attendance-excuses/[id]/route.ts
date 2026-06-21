@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { pushNotification } from '@/lib/clubhub/dispatchers'
+import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
 
 /**
  * PATCH /api/attendance-excuses/[id]
- * Body: { status: 'APPROVED' | 'DENIED', approvedById, reviewerNotes? }
+ * Body: { status: 'APPROVED' | 'DENIED', reviewerNotes? }
  *
  * If APPROVED, also updates the linked Attendance row to EXCUSED status
  * and reverses any late/absent penalties that were applied.
@@ -14,23 +15,32 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const body = await req.json()
-  const { status, approvedById, reviewerNotes } = body
+  const { status, reviewerNotes } = body
   if (!['APPROVED', 'DENIED'].includes(status)) {
     return NextResponse.json({ error: 'status must be APPROVED or DENIED' }, { status: 400 })
   }
-  if (!approvedById) {
-    return NextResponse.json({ error: 'approvedById required' }, { status: 400 })
-  }
 
-  const excuse = await db.attendanceExcuse.findUnique({ where: { id } })
+  const excuse = await db.attendanceExcuse.findUnique({
+    where: { id },
+    include: { event: { select: { clubId: true, title: true } } },
+  })
   if (!excuse) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // Reviewing an excuse requires members:write on the event's club (officer
+  // approval workflow). The original submitter cannot approve their own.
+  if (!hasPermission(user, 'members:write', excuse.event.clubId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
 
   const updated = await db.attendanceExcuse.update({
     where: { id },
     data: {
       status,
-      approvedById,
+      approvedById: user.id,  // always the signed-in user
       reviewedAt: new Date(),
     },
   })
@@ -73,6 +83,20 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const existing = await db.attendanceExcuse.findUnique({
+    where: { id },
+    include: { event: { select: { clubId: true } } },
+  })
+  if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // Submitter can delete their own pending excuse; officers can delete any.
+  if (existing.userId !== user.id && !hasPermission(user, 'members:write', existing.event.clubId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   await db.attendanceExcuse.delete({ where: { id } })
   return NextResponse.json({ ok: true })
 }

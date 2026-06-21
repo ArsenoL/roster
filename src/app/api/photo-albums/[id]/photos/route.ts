@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
 
 /**
  * POST /api/photo-albums/[id]/photos
- * Body: { url, caption?, width?, height?, uploadedById? }
- *       OR { urls: [...], uploadedById? } to bulk-add multiple URLs
+ * Body: { url, caption?, width?, height? }
+ *       OR { urls: [...], caption?, captions? } to bulk-add multiple URLs
  *
  * Note: this route accepts URLs (e.g. uploaded to /upload or external CDN).
  * It does not handle multipart form data directly — clients upload the binary
@@ -15,10 +16,17 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: albumId } = await params
-  const body = await req.json()
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const album = await db.photoAlbum.findUnique({ where: { id: albumId } })
+  const album = await db.photoAlbum.findUnique({ where: { id: albumId }, select: { clubId: true, coverPhoto: true } })
   if (!album) return NextResponse.json({ error: 'Album not found' }, { status: 404 })
+  // Uploading photos requires club:write (album owner / club exec).
+  if (!hasPermission(user, 'club:write', album.clubId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const body = await req.json()
 
   const urls: string[] = Array.isArray(body.urls) ? body.urls : body.url ? [body.url] : []
   if (urls.length === 0) {
@@ -34,7 +42,7 @@ export async function POST(
           caption: Array.isArray(body.captions) ? body.captions[i] : body.caption || null,
           width: body.width || null,
           height: body.height || null,
-          uploadedById: body.uploadedById || null,
+          uploadedById: user.id,  // always the signed-in user
         },
       })
     )
@@ -57,6 +65,15 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: albumId } = await params
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const album = await db.photoAlbum.findUnique({ where: { id: albumId }, select: { clubId: true, isPublic: true } })
+  if (!album) return NextResponse.json({ error: 'Album not found' }, { status: 404 })
+  if (!album.isPublic && !hasPermission(user, 'club:read', album.clubId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   const photos = await db.photo.findMany({
     where: { albumId },
     orderBy: { uploadedAt: 'desc' },
@@ -70,6 +87,15 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: albumId } = await params
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const album = await db.photoAlbum.findUnique({ where: { id: albumId }, select: { clubId: true } })
+  if (!album) return NextResponse.json({ error: 'Album not found' }, { status: 404 })
+  if (!hasPermission(user, 'club:write', album.clubId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   const url = new URL(req.url)
   const photoId = url.searchParams.get('id')
   if (!photoId) return NextResponse.json({ error: 'id required' }, { status: 400 })

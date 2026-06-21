@@ -1,11 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
 
 // GET /api/export?type=members|attendance|events&clubId=...
 export async function GET(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const url = new URL(req.url)
   const type = url.searchParams.get('type') || 'members'
   const clubId = url.searchParams.get('clubId')
+
+  // Exporting CSV is sensitive (PII: emails, phone numbers, student IDs).
+  // Require club:read on the target club. If no clubId is given, non-admins
+  // get an explicit error (we don't silently scope — the export endpoint
+  // expects a club context).
+  if (clubId && clubId !== 'ALL') {
+    if (!hasPermission(user, 'club:read', clubId)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+  } else if (user.role !== 'SUPER_ADMIN' && user.role !== 'SCHOOL_ADMIN') {
+    return NextResponse.json({ error: 'clubId required' }, { status: 400 })
+  }
 
   let csv = ''
   let filename = `${type}_export_${new Date().toISOString().slice(0, 10)}.csv`

@@ -1,16 +1,50 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { enqueueEmail } from '@/lib/clubhub/dispatchers'
+import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
 
 /**
  * POST /api/digests/send
- * Body: { clubId?, userId?, frequency? } — if no args, send to all due subscribers.
+ * Body: { clubId?, userId?, frequency?, forceAll? }
+ *
  * Compiles each subscriber's recent activity and emails them a digest.
  *
- * This is invoked by a cron job (or admin "send now" button).
+ * Auth:
+ *   - If called by a signed-in user, requires announcements:write on the
+ *     target club (school admins bypass). This is the "send now" admin button.
+ *   - If called by the cron processor with CRON_SECRET, the secret is checked
+ *     first (see /api/cron/* for the same pattern).
  */
 export async function POST(req: NextRequest) {
-  const body = await req.json() || {}
+  const url = new URL(req.url)
+  const expectedSecret = process.env.CRON_SECRET
+  const providedSecret =
+    url.searchParams.get('secret') ||
+    (await req.clone().json().catch(() => ({}))).secret
+
+  let isCron = false
+  if (expectedSecret && providedSecret === expectedSecret) {
+    isCron = true
+  }
+
+  // If not authenticated as cron, require an authed user with write perm.
+  if (!isCron) {
+    const user = await getCurrentUser()
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const body = await req.json().catch(() => ({}))
+    if (body.clubId && !hasPermission(user, 'announcements:write', body.clubId)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    // If body.clubId is not provided and the user isn't an admin, scope to
+    // clubs they can write to (avoid sending digests on behalf of clubs they
+    // don't manage).
+    if (!body.clubId && user.role !== 'SUPER_ADMIN' && user.role !== 'SCHOOL_ADMIN') {
+      // No clubId given — admin-only action. Reject for non-admins.
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+  }
+
+  const body = await req.json().catch(() => ({}))
   const now = new Date()
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
 
@@ -96,13 +130,13 @@ export async function POST(req: NextRequest) {
         </tr>
       </table>
 
-      ${upcomingEvents.length > 0 ? `<h3>📌 Upcoming Events</h3><ul>${upcomingEvents.map(e => `<li><strong>${e.title}</strong> — ${new Date(e.startTime).toLocaleString()}</li>`).join('')}</ul>` : ''}
+      ${upcomingEvents.length > 0 ? `<h3>Upcoming Events</h3><ul>${upcomingEvents.map(e => `<li><strong>${e.title}</strong> — ${new Date(e.startTime).toLocaleString()}</li>`).join('')}</ul>` : ''}
 
-      ${announcements.length > 0 ? `<h3>📢 Recent Announcements</h3><ul>${announcements.map(a => `<li><strong>${a.title}</strong> — ${a.content.slice(0, 100)}…</li>`).join('')}</ul>` : ''}
+      ${announcements.length > 0 ? `<h3>Recent Announcements</h3><ul>${announcements.map(a => `<li><strong>${a.title}</strong> — ${a.content.slice(0, 100)}…</li>`).join('')}</ul>` : ''}
 
-      ${tasks.length > 0 ? `<h3>✅ Your Open Tasks</h3><ul>${tasks.map(t => `<li><strong>${t.title}</strong> — due ${t.dueDate ? new Date(t.dueDate).toLocaleDateString() : 'whenever'}</li>`).join('')}</ul>` : ''}
+      ${tasks.length > 0 ? `<h3>Your Open Tasks</h3><ul>${tasks.map(t => `<li><strong>${t.title}</strong> — due ${t.dueDate ? new Date(t.dueDate).toLocaleDateString() : 'whenever'}</li>`).join('')}</ul>` : ''}
 
-      ${events.length > 0 ? `<h3>📅 Events from the Past Week</h3><ul>${events.map(e => `<li><strong>${e.title}</strong> — ${new Date(e.startTime).toLocaleString()}</li>`).join('')}</ul>` : ''}
+      ${events.length > 0 ? `<h3>Events from the Past Week</h3><ul>${events.map(e => `<li><strong>${e.title}</strong> — ${new Date(e.startTime).toLocaleString()}</li>`).join('')}</ul>` : ''}
 
       <hr style="border:none;border-top:1px solid #eee;margin:20px 0" />
       <p style="color:#999;font-size:12px">You're receiving this because you subscribed to a ${sub.frequency.toLowerCase()} digest for ${sub.club.name}. Manage your subscriptions in Settings.</p>
