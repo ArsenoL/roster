@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -20,6 +21,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
+
+  // Auth + per-club permission check. PATCH modifies the club itself, so
+  // require club:write (or a tenant-wide admin role).
+  const user = await getCurrentUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  if (!hasPermission(user, 'club:write', id)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   const body = await req.json()
   const before = await db.club.findUnique({ where: { id } })
 
@@ -35,17 +47,29 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     data,
   })
   await db.auditLog.create({
-    data: { action: 'update', entity: 'Club', entityId: id, clubId: id, before: JSON.stringify(before), after: JSON.stringify(club) }
+    data: { action: 'update', entity: 'Club', entityId: id, clubId: id, userId: user.id, before: JSON.stringify(before), after: JSON.stringify(club) }
   })
   return NextResponse.json({ club })
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
+
+  // Auth + per-club permission check. DELETE is the most destructive action
+  // in the product — only PRESIDENT / CLUB_LEADER / ADVISOR / SCHOOL_ADMIN /
+  // SUPER_ADMIN can do it.
+  const user = await getCurrentUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  if (!hasPermission(user, 'club:write', id)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   const before = await db.club.findUnique({ where: { id } })
   await db.club.delete({ where: { id } })
   await db.auditLog.create({
-    data: { action: 'delete', entity: 'Club', entityId: id, before: JSON.stringify(before) }
+    data: { action: 'delete', entity: 'Club', entityId: id, userId: user.id, before: JSON.stringify(before) }
   })
   return NextResponse.json({ success: true })
 }

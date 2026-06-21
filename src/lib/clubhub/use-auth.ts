@@ -33,6 +33,7 @@ export function useAuth() {
     // the loading state even after the user becomes available, and a
     // consumer that calls logout() while loading=true would be stuck.
     const listener = () => {
+      if (cancelled) return
       setUser(cachedUser)
       setLoading(false)
     }

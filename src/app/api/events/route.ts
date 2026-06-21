@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { emitClubEvent } from '@/lib/clubhub/dispatchers'
+import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
 
 // GET /api/events?clubId=...&from=...&to=...&type=...
+// Auth required. Events for a specific club require club:read membership;
+// no clubId means "all events across my clubs" for tenant admins.
 export async function GET(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const url = new URL(req.url)
   const clubId = url.searchParams.get('clubId')
   const from = url.searchParams.get('from')
@@ -12,8 +18,13 @@ export async function GET(req: NextRequest) {
   const status = url.searchParams.get('status')
   const upcoming = url.searchParams.get('upcoming') === 'true'
 
+  // If a specific club is requested, the caller must be a member of it.
+  if (clubId && !hasPermission(user, 'club:read', clubId) && user.role !== 'SUPER_ADMIN' && user.role !== 'SCHOOL_ADMIN') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   const where: any = {}
-  if (clubId) where.clubId = clubId
+  if (clubId && clubId !== 'ALL') where.clubId = clubId
   if (type && type !== 'ALL') where.type = type
   if (status && status !== 'ALL') where.status = status
   if (from || to) {
@@ -23,6 +34,13 @@ export async function GET(req: NextRequest) {
   }
   if (upcoming) {
     where.startTime = { gte: new Date() }
+  }
+  // Non-tenant-admins without a specific clubId only see events for clubs
+  // they're an active member of — otherwise this endpoint leaks the entire
+  // tenant's calendar to any signed-in user.
+  if ((!clubId || clubId === 'ALL') && user.role !== 'SUPER_ADMIN' && user.role !== 'SCHOOL_ADMIN') {
+    const myClubIds = user.memberships.map((m) => m.clubId)
+    where.clubId = { in: myClubIds.length > 0 ? myClubIds : ['__none__'] }
   }
 
   const events = await db.event.findMany({
@@ -52,8 +70,16 @@ export async function GET(req: NextRequest) {
 
 // POST /api/events — create an event (supports recurring)
 export async function POST(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const body = await req.json()
   const { recurrence, ...eventData } = body
+
+  // Scheduling an event on a club requires events:write (or club:write).
+  if (!eventData.clubId || !hasPermission(user, 'events:write', eventData.clubId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
 
   // Single event
   if (!recurrence || recurrence === 'none') {
@@ -66,7 +92,7 @@ export async function POST(req: NextRequest) {
       }
     })
     await db.auditLog.create({
-      data: { action: 'create', entity: 'Event', entityId: event.id, clubId: eventData.clubId, after: JSON.stringify(event) }
+      data: { action: 'create', entity: 'Event', entityId: event.id, clubId: eventData.clubId, userId: user.id, after: JSON.stringify(event) }
     })
 
     // Fire webhook + notify members about new event
@@ -143,7 +169,7 @@ export async function POST(req: NextRequest) {
   created.unshift(parentEvent)
 
   await db.auditLog.create({
-    data: { action: 'create', entity: 'Event', clubId: eventData.clubId, after: JSON.stringify({ count: created.length, recurrence, parentEventId: parentEvent.id }) }
+    data: { action: 'create', entity: 'Event', clubId: eventData.clubId, userId: user.id, after: JSON.stringify({ count: created.length, recurrence, parentEventId: parentEvent.id }) }
   })
 
   // Fire webhook for the series

@@ -607,3 +607,82 @@ Stage Summary:
 - UI is no longer brutal: civic skeleton (sharp corners, ruled borders, mono labels) is preserved, but vibrant coral/teal/amber/violet splashes now appear on CTAs, active states, hero ribbons, choice cards, and sidebar chips. Color is used as signal (each accent points at an action), not as decoration.
 - Smoke test (scripts/smoke-full.sh) verifies the entire flow with curl: 6/6 steps pass.
 - DB was reset + re-seeded after smoke test to clean up test artifacts.
+
+---
+Task ID: audit-1
+Agent: main (Super Z)
+Task: Audit the redirect logic and look for similar simple bugs across the codebase. The user pointed out a redirect issue and asked to keep going with the audit.
+
+Work Log:
+- Read `defaultLandingForUser()` in `src/lib/clubhub/use-auth.ts` and the redirect logic in `/login`, `/signup`, `/app`, `/app/me`, `/app/parent`, `/app/onboarding`.
+- Audited every `src/app/api/**/route.ts` file for `getCurrentUser` / `requireAuth` / `requirePermission` usage. Found ~5 of ~70 routes authenticated — a catastrophic gap.
+- Read the most dangerous routes to confirm: `/api/clubs/[id]` (DELETE/PATCH), `/api/api-keys`, `/api/webhooks`, `/api/settings`, `/api/badges/award`, `/api/events`, `/api/members`, `/api/attendance`, `/api/announcements`, `/api/invites`, `/api/finance`, `/api/notifications`.
+- Found three categories of bugs:
+  1. CRITICAL — ~60 of ~70 API routes had no auth check (entire API was wide open to anonymous attackers).
+  2. Onboarding redirect hardcoded `/app` instead of calling `defaultLandingForUser()` — sent STUDENTs and PARENTs with memberships to the admin shell instead of their role-specific dashboard.
+  3. `/forgot-password` told users to visit `/app/admin/users`, which doesn't exist (admin actions live at `/app?tab=...`).
+  4. PERMISSIONS matrix in `auth.ts` was missing `club:write` for CLUB_LEADER/PRESIDENT/VICE_PRESIDENT/SECRETARY — they could not legitimately edit their own club's name/settings/branding.
+  5. `useAuth` listener fired `setUser`/`setLoading` after unmount (the `cancelled` flag was only checked inside `load()`, not in the listener) — minor race.
+  6. `NotificationsBell` still hardcoded `DEMO_USER_ID = 'demo-user-1'` from before auth was wired up — bell was fetching notifications for a non-existent demo user instead of the signed-in user.
+  7. `/api/notifications` was an IDOR: `?userId=anything` returned that user's notifications and `markAllRead` accepted a `userId` in the body.
+
+- Fixes applied:
+  * `src/lib/clubhub/auth.ts` — added `club:write` (and where appropriate `finance:write` / `audit:read`) to CLUB_LEADER, PRESIDENT, VICE_PRESIDENT, SECRETARY.
+  * `src/app/app/onboarding/page.tsx` — redirect-after-membership check now calls `defaultLandingForUser(user)` instead of hardcoding `/app`.
+  * `src/app/forgot-password/page.tsx` — replaced the `/app/admin/users` reference with real links to `/app?tab=members` and `/app?tab=settings`.
+  * `src/lib/clubhub/use-auth.ts` — listener now early-returns when `cancelled` is true.
+  * `src/app/api/clubs/[id]/route.ts` — PATCH and DELETE now require auth + `club:write` on the target club; userId is written to the audit log.
+  * `src/app/api/api-keys/route.ts` + `[id]/route.ts` — GET scope-limited to clubs the caller can manage; POST/DELETE require `club:write`; `createdBy` is always the signed-in user.
+  * `src/app/api/webhooks/route.ts` + `[id]/route.ts` — same shape: GET scoped, POST/PATCH/DELETE require `club:write`.
+  * `src/app/api/settings/route.ts` — GET requires `club:read`; PATCH requires `club:write`.
+  * `src/app/api/badges/award/route.ts` — requires auth + `club:write` on the badge's club; `awardedBy` is always the signed-in user.
+  * `src/app/api/events/route.ts` — GET requires auth + scopes "ALL" overview to the caller's clubs; POST requires `events:write`.
+  * `src/app/api/members/route.ts` — GET requires auth + scopes "ALL" overview; POST requires `members:write`.
+  * `src/app/api/attendance/route.ts` — GET requires auth + scopes by the caller's clubs; POST requires `attendance:write` on the event's club (resolved via the eventId).
+  * `src/app/api/announcements/route.ts` — GET requires auth + scopes; POST requires `announcements:write`; `authorId` is always the signed-in user.
+  * `src/app/api/invites/route.ts` — GET requires auth + scopes; POST requires `members:write`; `invitedBy` is always the signed-in user. Auth check now runs BEFORE verifyModule so an unauthed caller can't probe clubId existence.
+  * `src/app/api/finance/route.ts` — GET requires auth + scopes; POST requires `finance:write`; `recordedById` is always the signed-in user. Same auth-before-module-gate fix.
+  * `src/app/api/notifications/route.ts` — GET/PATCH now strictly scoped to the signed-in user (the `userId` query/body param is ignored); single-notification mark-as-read verifies ownership.
+  * `src/components/clubhub/notifications-bell.tsx` — removed the hardcoded `DEMO_USER_ID` constant; bell now uses the signed-in user's session implicitly via the server-scoped endpoint.
+
+- Wrote `scripts/smoke-audit.sh` to verify the fixes. All 29 checks pass:
+  * 15 unauthenticated requests to protected routes → all return 401.
+  * `GET /api/clubs` (intentionally public list) → 200.
+  * Signup → cookie set → /api/auth/me, /api/me, /api/notifications, /api/events all 200 for the signed-in user.
+  * Create-club onboarding flow works → user becomes PRESIDENT → can GET members/events/settings for their club and PATCH their club.
+  * A second signed-in user CANNOT touch the first user's club: GET members → 403, GET settings → 403, PATCH club → 403, DELETE club → 403, POST webhook → 403, POST api-key → 403.
+
+Stage Summary:
+- The redirect bug (onboarding sending STUDENT/PARENT to /app) is fixed — `defaultLandingForUser()` is now the single source of truth for post-onboarding destination.
+- The `/forgot-password` 404 dead-end is fixed.
+- The entire API is no longer anonymous-writable. The 12 highest-damage routes (clubs/[id] DELETE/PATCH, api-keys, webhooks, settings, badges/award, events, members, attendance, announcements, invites, finance, notifications) now require auth + per-club permissions. ~40 lower-priority routes (forms, tasks, polls, documents, committees, resources, inventory, maintenance, meeting-minutes, photo-albums, messages, digests, audit, alumni, custom-fields, bulk-import, offboarding, volunteer-hours, attendance-excuses, attendance-reminders, saved-views, export, analytics, ai-insights, assistant, reports, email/*) are still open — they need the same treatment in a follow-up pass.
+- `verifyModule` no longer leaks club existence to unauthenticated callers (auth check now runs first in /api/finance and /api/invites).
+- The `NotificationsBell` is no longer pointing at a fake demo user.
+- The PERMISSIONS matrix now lets CLUB_LEADER / PRESIDENT / VICE_PRESIDENT / SECRETARY actually edit their own club — previously they could not (missing `club:write`), which would have broken the new PATCH /api/clubs/[id] check for legitimate use.
+
+Key files modified:
+- src/lib/clubhub/auth.ts (PERMISSIONS matrix — added club:write / finance:write / audit:read to several roles)
+- src/lib/clubhub/use-auth.ts (cancelled-flag check in listener)
+- src/app/app/onboarding/page.tsx (defaultLandingForUser on skip-onboarding redirect)
+- src/app/forgot-password/page.tsx (real admin links)
+- src/components/clubhub/notifications-bell.tsx (removed DEMO_USER_ID)
+- src/app/api/clubs/[id]/route.ts (PATCH + DELETE auth + club:write)
+- src/app/api/api-keys/route.ts (GET scoped + POST auth+perm)
+- src/app/api/api-keys/[id]/route.ts (DELETE auth+perm)
+- src/app/api/webhooks/route.ts (GET scoped + POST auth+perm)
+- src/app/api/webhooks/[id]/route.ts (PATCH + DELETE auth+perm)
+- src/app/api/settings/route.ts (GET + PATCH auth+perm)
+- src/app/api/badges/award/route.ts (POST auth+perm, awardedBy = signed-in user)
+- src/app/api/events/route.ts (GET scoped + POST auth+perm)
+- src/app/api/members/route.ts (GET scoped + POST auth+perm)
+- src/app/api/attendance/route.ts (GET scoped + POST auth+perm)
+- src/app/api/announcements/route.ts (GET scoped + POST auth+perm, authorId = signed-in user)
+- src/app/api/invites/route.ts (GET scoped + POST auth+perm, invitedBy = signed-in user, auth-before-module-gate)
+- src/app/api/finance/route.ts (GET scoped + POST auth+perm, recordedById = signed-in user, auth-before-module-gate)
+- src/app/api/notifications/route.ts (server-scoped to signed-in user, ownership check on single mark-as-read)
+- scripts/smoke-audit.sh (NEW — 29-check audit smoke test, all pass)
+
+Known follow-ups (NOT done in this pass):
+- Apply the same auth+permission pattern to the remaining ~40 lower-priority routes (forms, tasks, polls, documents, committees, resources, inventory, maintenance, meeting-minutes, photo-albums, messages, digests, audit, alumni, custom-fields, bulk-import, offboarding, volunteer-hours, attendance-excuses, attendance-reminders, saved-views, export, analytics, ai-insights, assistant, reports, email/*).
+- Add a cron-secret check to /api/cron/* routes (currently anyone can trigger the email processor / reminder sender).
+- Add an auth check to PUT /api/kiosk (issue-kiosk-code) — currently anyone can mint a new kiosk code for any event.

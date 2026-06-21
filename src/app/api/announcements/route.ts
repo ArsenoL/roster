@@ -1,13 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { emitClubEvent, enqueueEmail } from '@/lib/clubhub/dispatchers'
+import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
 
 // GET /api/announcements?clubId=...
+// Public clubs' announcements are visible to any signed-in user (the public
+// portal uses a different endpoint). For private clubs, require club:read.
 export async function GET(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const url = new URL(req.url)
   const clubId = url.searchParams.get('clubId')
   const where: any = {}
-  if (clubId) where.clubId = clubId
+  if (clubId && clubId !== 'ALL') {
+    if (!hasPermission(user, 'club:read', clubId)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    where.clubId = clubId
+  } else if (user.role !== 'SUPER_ADMIN' && user.role !== 'SCHOOL_ADMIN') {
+    const myClubIds = user.memberships.map((m) => m.clubId)
+    where.clubId = { in: myClubIds.length > 0 ? myClubIds : ['__none__'] }
+  }
   const announcements = await db.announcement.findMany({
     where,
     include: {
@@ -24,11 +38,19 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const body = await req.json()
+  // Posting an announcement (and especially sending it as email/SMS to all
+  // members) requires announcements:write.
+  if (!body.clubId || !hasPermission(user, 'announcements:write', body.clubId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
   const announcement = await db.announcement.create({
     data: {
       clubId: body.clubId,
-      authorId: body.authorId,
+      authorId: user.id,  // always the signed-in user, never trust the body
       title: body.title,
       content: body.content,
       priority: body.priority || 'NORMAL',
@@ -42,7 +64,7 @@ export async function POST(req: NextRequest) {
     include: { author: true, club: true }
   })
   await db.auditLog.create({
-    data: { action: 'create', entity: 'Announcement', entityId: announcement.id, clubId: body.clubId, after: JSON.stringify(announcement) }
+    data: { action: 'create', entity: 'Announcement', entityId: announcement.id, clubId: body.clubId, userId: user.id, after: JSON.stringify(announcement) }
   })
 
   // REAL SIDE-EFFECTS (Phase 3):

@@ -46,7 +46,9 @@ export default function ForgotPasswordPage() {
             </div>
             <p className="text-sm text-foreground">
               Self-serve password reset is on the roadmap. For now, an admin can reset your
-              password from <code className="px-1 py-0.5 text-xs" style={{ background: 'var(--muted)' }}>/app/admin/users</code>.
+              password from the <Link href="/app?tab=members" className="link-u">Members tab</Link> of
+              any club you belong to (or the <Link href="/app?tab=settings" className="link-u">Settings tab</Link> for
+              tenant-wide user management).
             </p>
           </div>
 

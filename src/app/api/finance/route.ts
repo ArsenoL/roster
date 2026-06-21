@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyModule } from '@/lib/clubhub/module-gate'
+import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
 
 // GET /api/finance?clubId=...
 export async function GET(req: NextRequest) {
+  // Auth first — never run verifyModule (which does a DB lookup) for an
+  // unauthenticated caller, since that would let them probe clubId existence.
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const __gate = await verifyModule(req, 'finance')
   if (__gate instanceof NextResponse) return __gate
 
@@ -12,7 +18,15 @@ export async function GET(req: NextRequest) {
   const period = url.searchParams.get('period') // month | semester | year | all
 
   const where: any = {}
-  if (clubId && clubId !== 'ALL') where.clubId = clubId
+  if (clubId && clubId !== 'ALL') {
+    if (!hasPermission(user, 'finance:read', clubId) && !hasPermission(user, 'club:read', clubId)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    where.clubId = clubId
+  } else if (user.role !== 'SUPER_ADMIN' && user.role !== 'SCHOOL_ADMIN') {
+    const myClubIds = user.memberships.filter(m => hasPermission(user, 'finance:read', m.clubId) || hasPermission(user, 'club:read', m.clubId)).map(m => m.clubId)
+    where.clubId = { in: myClubIds.length > 0 ? myClubIds : ['__none__'] }
+  }
 
   if (period && period !== 'all') {
     const now = new Date()
@@ -78,10 +92,18 @@ export async function GET(req: NextRequest) {
 
 // POST /api/finance
 export async function POST(req: NextRequest) {
+  // Auth first (see GET above for rationale).
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const __gate = await verifyModule(req, 'finance')
   if (__gate instanceof NextResponse) return __gate
 
   const body = await req.json()
+  // Recording a transaction requires finance:write on the target club.
+  if (!body.clubId || !hasPermission(user, 'finance:write', body.clubId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
   const tx = await db.transaction.create({
     data: {
       clubId: body.clubId,
@@ -90,7 +112,7 @@ export async function POST(req: NextRequest) {
       amount: parseFloat(body.amount),
       description: body.description || null,
       date: body.date ? new Date(body.date) : new Date(),
-      recordedById: body.recordedById || null,
+      recordedById: user.id,  // always the signed-in user
       memberId: body.memberId || null,
       eventId: body.eventId || null,
       receiptUrl: body.receiptUrl || null,
@@ -114,6 +136,7 @@ export async function POST(req: NextRequest) {
       entity: 'Transaction',
       entityId: tx.id,
       clubId: body.clubId,
+      userId: user.id,
       after: JSON.stringify(tx),
     },
   })

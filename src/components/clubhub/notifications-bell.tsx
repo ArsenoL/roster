@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useFetch, apiPatch } from '@/lib/clubhub/hooks'
+import { useAuth } from '@/lib/clubhub/use-auth'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -10,9 +11,6 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Bell, CheckCheck, Trash2, Megaphone, Calendar, CheckSquare, Vote, Heart, Trophy, Package, Building2, Brain, Mail } from 'lucide-react'
 import { timeAgo } from '@/lib/clubhub/types'
 import { toast } from 'sonner'
-
-// Demo user — in production this would come from auth
-const DEMO_USER_ID = 'demo-user-1'
 
 const ICON_MAP: Record<string, any> = {
  announcement: Megaphone,
@@ -36,14 +34,16 @@ const PRIORITY_COLORS: Record<string, string> = {
 }
 
 export function NotificationsBell({ onNavigate }: { onNavigate?: (link: string) => void }) {
- const { data, refetch } = useFetch<{ notifications: any[], unreadCount: number }>(`/api/notifications?userId=${DEMO_USER_ID}`)
+ const { user } = useAuth()
+ // Server scopes /api/notifications to the signed-in user — no userId param needed.
+ const { data, refetch } = useFetch<{ notifications: any[], unreadCount: number }>(`/api/notifications`)
  const [open, setOpen] = useState(false)
 
  const notifications = data?.notifications || []
  const unread = data?.unreadCount || 0
 
  const markAllRead = async () => {
- await apiPatch('/api/notifications', { markAllRead: true, userId: DEMO_USER_ID })
+ await apiPatch('/api/notifications', { markAllRead: true })
  refetch()
  }
 

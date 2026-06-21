@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { apiPost } from '@/lib/clubhub/hooks'
-import { useAuth } from '@/lib/clubhub/use-auth'
+import { defaultLandingForUser, useAuth } from '@/lib/clubhub/use-auth'
 import { useDarkMode } from '@/lib/clubhub/use-dark-mode'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -48,9 +48,12 @@ export default function OnboardingPage() {
 
   // If user is already in a club, skip onboarding entirely.
   // Wait for authLoading so we don't redirect based on a stale cached user.
+  // Use defaultLandingForUser() so the destination matches what login/signup
+  // would have chosen — STUDENT → /app/me, PARENT → /app/parent, etc.
+  // (Previously this hardcoded /app, which sent students to the admin shell.)
   useEffect(() => {
     if (!authLoading && user && user.memberships && user.memberships.length > 0) {
-      router.replace('/app')
+      router.replace(defaultLandingForUser(user))
     }
   }, [authLoading, user, router])
 

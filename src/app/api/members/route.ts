@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
 
 // GET /api/members?clubId=...&search=...&role=...&grade=...&status=...
+// Auth required. Without a clubId, restricted to the caller's own clubs.
+// Member PII (email/phone/grade) is sensitive — never expose to anonymous users.
 export async function GET(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const url = new URL(req.url)
   const clubId = url.searchParams.get('clubId')
   const search = url.searchParams.get('search')
@@ -13,7 +19,16 @@ export async function GET(req: NextRequest) {
   const offset = parseInt(url.searchParams.get('offset') || '0')
 
   const where: any = {}
-  if (clubId) where.clubId = clubId
+  if (clubId && clubId !== 'ALL') {
+    if (!hasPermission(user, 'club:read', clubId)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    where.clubId = clubId
+  } else if (user.role !== 'SUPER_ADMIN' && user.role !== 'SCHOOL_ADMIN') {
+    // Overview: limit to clubs the caller can read.
+    const myClubIds = user.memberships.map((m) => m.clubId)
+    where.clubId = { in: myClubIds.length > 0 ? myClubIds : ['__none__'] }
+  }
   if (role && role !== 'ALL') where.role = role
   if (status && status !== 'ALL') where.status = status
   if (search) {
@@ -65,11 +80,18 @@ export async function GET(req: NextRequest) {
 
 // POST /api/members — add a member to a club
 export async function POST(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const body = await req.json()
+  // Adding a member requires members:write on the target club.
+  if (!body.clubId || !hasPermission(user, 'members:write', body.clubId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
   // Ensure user exists
-  let user = await db.user.findUnique({ where: { email: body.email } })
-  if (!user) {
-    user = await db.user.create({
+  let targetUser = await db.user.findUnique({ where: { email: body.email } })
+  if (!targetUser) {
+    targetUser = await db.user.create({
       data: {
         email: body.email,
         name: body.name,
@@ -85,14 +107,14 @@ export async function POST(req: NextRequest) {
   }
   // Create membership (idempotent)
   const existing = await db.membership.findUnique({
-    where: { userId_clubId: { userId: user.id, clubId: body.clubId } }
+    where: { userId_clubId: { userId: targetUser.id, clubId: body.clubId } }
   })
   if (existing) {
     return NextResponse.json({ member: existing, already: true })
   }
   const member = await db.membership.create({
     data: {
-      userId: user.id,
+      userId: targetUser.id,
       clubId: body.clubId,
       role: body.role || 'MEMBER',
       customData: body.customData ? JSON.stringify(body.customData) : null,
@@ -100,7 +122,7 @@ export async function POST(req: NextRequest) {
     include: { user: true }
   })
   await db.auditLog.create({
-    data: { action: 'create', entity: 'Membership', entityId: member.id, clubId: body.clubId, after: JSON.stringify(member) }
+    data: { action: 'create', entity: 'Membership', entityId: member.id, clubId: body.clubId, userId: user.id, after: JSON.stringify(member) }
   })
   return NextResponse.json({ member })
 }
