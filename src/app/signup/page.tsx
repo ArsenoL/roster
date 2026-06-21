@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { _refreshAuthState, defaultLandingForUser, useAuth } from '@/lib/clubhub/use-auth'
+import { _setAuthedUser, defaultLandingForUser, useAuth } from '@/lib/clubhub/use-auth'
 import { useDarkMode } from '@/lib/clubhub/use-dark-mode'
 
 function SignupInner() {
@@ -88,8 +88,10 @@ function SignupInner() {
       const data = await res.json()
       if (res.ok) {
         setStatus('success')
-        _refreshAuthState()
-        setTimeout(() => redirectAfterSignup(data.user), 200)
+        // Inject the freshly-created user into the auth cache so the
+        // destination page sees it immediately on mount.
+        _setAuthedUser(data.user)
+        redirectAfterSignup(data.user)
       } else {
         setStatus('error')
         setError(data.error || 'Could not create account')

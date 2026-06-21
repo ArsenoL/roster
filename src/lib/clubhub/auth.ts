@@ -189,13 +189,31 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
     data: { expiresAt: new Date(Date.now() + SESSION_DURATION_MS) },
   }).catch(() => {})
 
+  return shapeAuthUser(session.user)
+}
+
+/** Shape a raw Prisma User row (with memberships + club included) into the
+ *  AuthUser DTO that the client expects. Shared between getCurrentUser()
+ *  and the login/signup routes so they all return the same shape. */
+export function shapeAuthUser(user: {
+  id: string
+  email: string
+  name: string
+  role: string
+  memberships: Array<{
+    clubId: string
+    role: string
+    status: string
+    club: { id: string; name: string }
+  }>
+}): AuthUser {
   return {
-    id: session.user.id,
-    email: session.user.email,
-    name: session.user.name,
-    role: session.user.role,
-    globalRole: session.user.role,
-    memberships: session.user.memberships.map((m) => ({
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    globalRole: user.role,
+    memberships: user.memberships.map((m) => ({
       clubId: m.clubId,
       clubName: m.club.name,
       role: m.role,

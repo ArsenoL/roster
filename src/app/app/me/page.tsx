@@ -31,7 +31,7 @@ const ROLE_LABEL: Record<string, string> = {
 
 export default function StudentDashboard() {
   const router = useRouter()
-  const { user, loading: authLoading } = useAuth()
+  const { user, loading: authLoading, logout } = useAuth()
   const { data, loading } = useFetch<any>('/api/me')
   const { dark, toggle: toggleDark } = useDarkMode()
 
@@ -40,7 +40,7 @@ export default function StudentDashboard() {
   }, [authLoading, user, router])
 
 
-  if (authLoading || (!user && !loading)) {
+  if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-brand" />
@@ -77,8 +77,16 @@ export default function StudentDashboard() {
             <Button variant="ghost" size="icon" onClick={toggleDark} aria-label="Toggle dark mode">
               {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
-            <Button variant="ghost" size="icon" asChild title="Sign out">
-              <Link href="/login"><Home className="h-4 w-4" /></Link>
+            <Button
+              variant="ghost"
+              size="icon"
+              title="Sign out"
+              onClick={async () => {
+                await logout()
+                router.push('/')
+              }}
+            >
+              <Home className="h-4 w-4" />
             </Button>
             <Avatar className="h-8 w-8" style={{ backgroundColor: avatarColor(user.name) }}>
               <AvatarFallback className="text-white text-xs font-medium">{initials(user.name)}</AvatarFallback>

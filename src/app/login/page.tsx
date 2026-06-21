@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { _refreshAuthState, defaultLandingForUser, useAuth } from '@/lib/clubhub/use-auth'
+import { _setAuthedUser, defaultLandingForUser, useAuth } from '@/lib/clubhub/use-auth'
 import { useDarkMode } from '@/lib/clubhub/use-dark-mode'
 
 function LoginInner() {
@@ -65,9 +65,12 @@ function LoginInner() {
       const data = await res.json()
       if (res.ok) {
         setStatus('success')
-        _refreshAuthState()
-        // Give the auth context a tick to update, then redirect.
-        setTimeout(() => redirectAfterLogin(data.user), 200)
+        // The login API already returned the user — inject it directly into
+        // the auth cache so the destination page (mounted by the redirect
+        // below) sees the user immediately, with no flash of unauthenticated
+        // state and no extra /api/auth/me round-trip.
+        _setAuthedUser(data.user)
+        redirectAfterLogin(data.user)
       } else {
         setStatus('error')
         setError(data.error || 'Incorrect email or password')

@@ -47,11 +47,12 @@ export default function OnboardingPage() {
   }, [authLoading, user, router])
 
   // If user is already in a club, skip onboarding entirely.
+  // Wait for authLoading so we don't redirect based on a stale cached user.
   useEffect(() => {
-    if (user && user.memberships && user.memberships.length > 0) {
+    if (!authLoading && user && user.memberships && user.memberships.length > 0) {
       router.replace('/app')
     }
-  }, [user, router])
+  }, [authLoading, user, router])
 
   if (authLoading) {
     return (
@@ -86,9 +87,11 @@ export default function OnboardingPage() {
         toast.success('Club created. Taking you to your dashboard.')
         // Re-fetch the user so the new membership + upgraded role are
         // reflected before we land on /app — otherwise the onboarding
-        // gate on /app would bounce them back here.
+        // gate on /app would bounce them back here. `refresh()` updates
+        // cachedUser and emits to all listeners synchronously after the
+        // fetch resolves, so we can navigate immediately on completion.
         await refresh()
-        setTimeout(() => router.push('/app'), 400)
+        router.push('/app')
       } else {
         toast.error('Could not create the club. ' + (res?.error ?? ''))
         setCreating(false)

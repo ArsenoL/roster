@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import {
   generateSessionToken,
   setSessionCookie,
+  shapeAuthUser,
   validateEmail,
   verifyPassword,
 } from '@/lib/clubhub/auth'
@@ -73,15 +74,26 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  const res = NextResponse.json({
-    ok: true,
-    user: {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
+  // Fetch the user's active memberships so the client can compute the
+  // correct landing page without an extra round-trip. Without memberships,
+  // defaultLandingForUser() would send every non-STUDENT/non-PARENT user
+  // to /app/onboarding even if they have an active club.
+  //
+  // (We can't use getCurrentUser() here because it reads the session cookie
+  // from the incoming request — and we haven't set the response cookie yet.)
+  const userWithMemberships = await db.user.findUnique({
+    where: { id: user.id },
+    include: {
+      memberships: {
+        where: { status: 'ACTIVE' },
+        include: { club: { select: { id: true, name: true } } },
+      },
     },
   })
+
+  const fullUser = shapeAuthUser(userWithMemberships!)
+
+  const res = NextResponse.json({ ok: true, user: fullUser })
   await setSessionCookie(res, sessionToken)
   return res
 }
