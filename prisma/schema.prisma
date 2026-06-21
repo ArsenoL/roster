@@ -17,6 +17,7 @@ model User {
   id             String   @id @default(cuid())
   email          String   @unique
   name           String
+  passwordHash   String?  // scrypt hash, null for users created via invites/SSO
   role           UserRole @default(STUDENT)
   studentId      String?  // School-issued student ID
   grade          Int?     // 9-12

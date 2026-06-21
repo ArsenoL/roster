@@ -102,8 +102,9 @@ export function defaultLandingForUser(user: AuthUser | null, next?: string | nul
   if (!user) return '/login'
   if (user.role === 'STUDENT') return '/app/me'
   if (user.role === 'PARENT') return '/app/parent'
-  // First-time user (auto-created during magic-link) has role GUEST and no
-  // memberships. Send them to onboarding so they can create or join a club.
+  // A first-time user with no memberships needs to land on onboarding so they
+  // can create or join a club. With password auth this only happens when an
+  // admin pre-creates the account without assigning any memberships.
   if (user.role === 'GUEST' && (!user.memberships || user.memberships.length === 0)) {
     return '/app/onboarding'
   }

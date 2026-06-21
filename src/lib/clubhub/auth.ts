@@ -1,17 +1,16 @@
 /**
- * Lightweight auth — magic-link login + signed session cookie.
+ * Lightweight auth — email + password login, signed session cookie.
  *
  * Why not next-auth? next-auth is configured in package.json but the OAuth
  * providers all require external credentials (Google, GitHub, etc.). For a
- * high-school-club tool, magic-link-by-email is the lowest-friction auth that
- * works without third-party setup.
+ * high-school-club tool, simple email + password is the lowest-friction auth
+ * that works without third-party setup.
  *
  * Flow:
- *   1. User enters email → POST /api/auth/request-magic
- *      → server creates a MagicLink row with token + sends email
- *   2. User clicks link → GET /login?token=...
- *      → frontend POST /api/auth/verify-magic { token }
- *      → server creates UserSession + sets signed httpOnly cookie
+ *   1. User signs up → POST /api/auth/signup { name, email, password }
+ *      → server hashes password (scrypt), creates User, sets session cookie
+ *   2. User logs in → POST /api/auth/login { email, password }
+ *      → server verifies password, sets session cookie
  *   3. Subsequent requests send cookie → server-side `getCurrentUser()`
  *      looks up session by token
  *   4. POST /api/auth/logout → invalidates session
@@ -25,9 +24,85 @@
 import { db } from '@/lib/db'
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
+import {
+  randomBytes,
+  scrypt as scryptCallback,
+  timingSafeEqual,
+  type ScryptOptions,
+} from 'crypto'
+import { promisify } from 'util'
+
+const scrypt = promisify(scryptCallback) as (
+  password: string | Buffer,
+  salt: string | Buffer,
+  keylen: number,
+  options?: ScryptOptions
+) => Promise<Buffer>
 
 const SESSION_COOKIE = 'roster_session'
 const SESSION_DURATION_MS = 1000 * 60 * 60 * 24 * 14  // 14 days
+
+// scrypt parameters — N=2^15 (cost), r=8 (block size), p=1 (parallelism).
+// These are conservative, well-tested defaults that take ~80ms on a modern
+// CPU. Tunable via env if you need stronger (or faster) hashing.
+const SCRYPT_KEYLEN = 64
+const SCRYPT_PARAMS: ScryptOptions = {
+  N: 1 << 15,
+  r: 8,
+  p: 1,
+  maxmem: 128 * SCRYPT_KEYLEN * (1 << 15),
+}
+
+/** Hash a password with scrypt + per-user salt.
+ *  Returns a single string: `scrypt$<saltHex>$<hashHex>` so verification
+ *  can pull both pieces back out. */
+export async function hashPassword(password: string): Promise<string> {
+  const salt = randomBytes(16).toString('hex')
+  const derived = await scrypt(password, salt, SCRYPT_KEYLEN, SCRYPT_PARAMS)
+  return `scrypt$${salt}$${derived.toString('hex')}`
+}
+
+/** Verify a password against a stored `scrypt$salt$hash` string.
+ *  Uses timingSafeEqual to prevent timing attacks. Returns true on match,
+ *  false on any mismatch, malformed hash, or null hash. */
+export async function verifyPassword(
+  password: string,
+  stored: string | null | undefined
+): Promise<boolean> {
+  if (!stored || !stored.startsWith('scrypt$')) return false
+  const parts = stored.split('$')
+  if (parts.length !== 3) return false
+  const [, salt, hashHex] = parts
+  try {
+    const expected = Buffer.from(hashHex, 'hex')
+    const derived = await scrypt(password, salt, expected.length, SCRYPT_PARAMS)
+    return derived.length === expected.length && timingSafeEqual(derived, expected)
+  } catch {
+    return false
+  }
+}
+
+/** Validate password strength — returns null if OK, or an error string. */
+export function validatePassword(password: string): string | null {
+  if (password.length < 8) return 'Password must be at least 8 characters'
+  if (password.length > 200) return 'Password is too long (max 200 chars)'
+  // Require at least one letter and one number — keeps it friendly for
+  // students while preventing trivial passwords like "11111111".
+  if (!/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
+    return 'Password must include both letters and numbers'
+  }
+  return null
+}
+
+/** Validate email format — basic RFC-ish check, good enough for our purposes. */
+export function validateEmail(email: string): string | null {
+  if (!email) return 'Email is required'
+  if (email.length > 254) return 'Email is too long'
+  // Same regex used by the HTML5 email input type — pragmatic, not strict RFC.
+  const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  if (!re.test(email)) return 'Please enter a valid email address'
+  return null
+}
 
 export interface AuthUser {
   id: string

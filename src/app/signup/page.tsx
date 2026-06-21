@@ -20,20 +20,22 @@ import { useRouter } from 'next/navigation'
 import { _refreshAuthState, defaultLandingForUser, useAuth } from '@/lib/clubhub/use-auth'
 import { useDarkMode } from '@/lib/clubhub/use-dark-mode'
 
-function LoginInner() {
+function SignupInner() {
   const params = useSearchParams()
   const router = useRouter()
   const nextParam = params.get('next')
   const { user } = useAuth()
 
+  const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [status, setStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle')
   const [error, setError] = useState('')
   const { dark, toggle: toggleDark } = useDarkMode()
 
-  const redirectAfterLogin = useCallback(
+  const redirectAfterSignup = useCallback(
     (signedInUser: any) => {
       const target = defaultLandingForUser(signedInUser, nextParam)
       router.replace(target)
@@ -51,26 +53,46 @@ function LoginInner() {
     }
   }, [user, nextParam, router])
 
+  // Basic client-side checks — the server validates too, this just gives
+  // instant feedback before the round-trip.
+  function clientValidate(): string | null {
+    if (!name.trim()) return 'Please enter your name'
+    if (name.trim().length > 80) return 'Name is too long (max 80 chars)'
+    if (!email) return 'Email is required'
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return 'Please enter a valid email'
+    if (password.length < 8) return 'Password must be at least 8 characters'
+    if (!/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
+      return 'Password must include both letters and numbers'
+    }
+    if (password !== confirm) return 'Passwords do not match'
+    return null
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!email || !password) return
+    const err = clientValidate()
+    if (err) {
+      setStatus('error')
+      setError(err)
+      return
+    }
+
     setStatus('sending')
     setError('')
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ name: name.trim(), email: email.toLowerCase().trim(), password }),
       })
       const data = await res.json()
       if (res.ok) {
         setStatus('success')
         _refreshAuthState()
-        // Give the auth context a tick to update, then redirect.
-        setTimeout(() => redirectAfterLogin(data.user), 200)
+        setTimeout(() => redirectAfterSignup(data.user), 200)
       } else {
         setStatus('error')
-        setError(data.error || 'Incorrect email or password')
+        setError(data.error || 'Could not create account')
       }
     } catch (e: any) {
       setStatus('error')
@@ -80,7 +102,6 @@ function LoginInner() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      {/* Top bar */}
       <header className="border-b border-border">
         <div className="max-w-6xl mx-auto px-5 sm:px-8 h-14 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
@@ -90,12 +111,6 @@ function LoginInner() {
             </span>
           </Link>
           <div className="flex items-center gap-2">
-            <Link
-              href="/demo"
-              className="hidden sm:inline text-sm text-muted-foreground hover:text-foreground"
-            >
-              Try a demo
-            </Link>
             <Button variant="ghost" size="sm" onClick={toggleDark} aria-label="Toggle dark mode">
               {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
@@ -105,23 +120,20 @@ function LoginInner() {
 
       <main className="flex-1 flex items-center justify-center px-5 sm:px-8 py-12">
         <div className="w-full max-w-md">
-          {/* Accent ribbon — small, vibrant, breaks the brutalism */}
           <div className="h-1 w-16 bg-[var(--vibrant)] mb-6" />
 
-          {/* Status title */}
           <div className="mb-6">
-            <div className="label-mono mb-2">Sign in</div>
+            <div className="label-mono mb-2">Create your account</div>
             <h1 className="text-2xl font-semibold tracking-tight">
-              {status === 'success' ? 'Signed in' : 'Welcome back'}
+              {status === 'success' ? 'Account created' : 'Join Roster'}
             </h1>
             <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
               {status === 'success'
                 ? 'Redirecting to your dashboard.'
-                : 'Enter your email and password to sign in to your account.'}
+                : 'Sign up to manage your club — attendance, members, events, and more.'}
             </p>
           </div>
 
-          {/* Success state */}
           {status === 'success' && (
             <div
               className="flex items-center gap-3 py-6 border px-4 mb-4"
@@ -132,9 +144,25 @@ function LoginInner() {
             </div>
           )}
 
-          {/* Login form */}
           {status !== 'success' && (
             <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="name" className="label-mono">
+                  Full name
+                </Label>
+                <Input
+                  id="name"
+                  type="text"
+                  placeholder="Alex Chen"
+                  className="h-11 field"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  autoComplete="name"
+                  autoFocus
+                  required
+                />
+              </div>
+
               <div className="space-y-1.5">
                 <Label htmlFor="email" className="label-mono">
                   Email
@@ -147,32 +175,23 @@ function LoginInner() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   autoComplete="email"
-                  autoFocus
                   required
                 />
               </div>
 
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="password" className="label-mono">
-                    Password
-                  </Label>
-                  <Link
-                    href="/forgot-password"
-                    className="text-xs text-muted-foreground hover:text-foreground link-u"
-                  >
-                    Forgot?
-                  </Link>
-                </div>
+                <Label htmlFor="password" className="label-mono">
+                  Password
+                </Label>
                 <div className="relative">
                   <Input
                     id="password"
                     type={showPassword ? 'text' : 'password'}
-                    placeholder="••••••••"
+                    placeholder="At least 8 characters"
                     className="h-11 field pr-10"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    autoComplete="current-password"
+                    autoComplete="new-password"
                     required
                   />
                   <button
@@ -185,20 +204,39 @@ function LoginInner() {
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Use 8+ characters with at least one letter and one number.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="confirm" className="label-mono">
+                  Confirm password
+                </Label>
+                <Input
+                  id="confirm"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="Re-enter your password"
+                  className="h-11 field"
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
+                  autoComplete="new-password"
+                  required
+                />
               </div>
 
               <Button
                 type="submit"
                 className="w-full h-11 bg-[var(--vibrant)] hover:bg-[var(--vibrant-strong)] text-white border-0"
-                disabled={!email || !password || status === 'sending'}
+                disabled={!name || !email || !password || !confirm || status === 'sending'}
               >
                 {status === 'sending' ? (
                   <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Signing in…
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Creating account…
                   </>
                 ) : (
                   <>
-                    Sign in <ArrowRight className="h-4 w-4 ml-2" />
+                    Create account <ArrowRight className="h-4 w-4 ml-2" />
                   </>
                 )}
               </Button>
@@ -215,28 +253,24 @@ function LoginInner() {
             </form>
           )}
 
-          {/* Sign-up link */}
           <div className="mt-6 text-center text-sm text-muted-foreground">
-            Don&apos;t have an account?{' '}
+            Already have an account?{' '}
             <Link
-              href={nextParam ? `/signup?next=${encodeURIComponent(nextParam)}` : '/signup'}
+              href={nextParam ? `/login?next=${encodeURIComponent(nextParam)}` : '/login'}
               className="text-foreground link-u font-medium"
             >
-              Create one
+              Sign in
             </Link>
           </div>
 
-          {/* Bottom strip — security note in plain language */}
           <div className="mt-8 pt-5 border-t border-border">
             <div className="label-mono mb-2">About your password</div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Your password is hashed with scrypt before it touches our database — we never see
-              the plaintext. Sessions last 14 days on this device. Sign out from the account
-              menu any time.
+              Your password is hashed with scrypt (per-user salt, N=2¹⁵) before it touches our
+              database — we never see the plaintext. Sessions last 14 days on this device.
             </p>
           </div>
 
-          {/* Footer links */}
           <div className="mt-6 flex items-center justify-between text-sm">
             <Link href="/" className="text-muted-foreground hover:text-foreground">
               ← Back to home
@@ -251,7 +285,7 @@ function LoginInner() {
   )
 }
 
-export default function LoginPage() {
+export default function SignupPage() {
   return (
     <Suspense
       fallback={
@@ -260,7 +294,7 @@ export default function LoginPage() {
         </div>
       }
     >
-      <LoginInner />
+      <SignupInner />
     </Suspense>
   )
 }
