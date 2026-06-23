@@ -1,19 +1,21 @@
-// ClubHub — High School Club Attendance & Member Management Platform
+// Roster — High School Club Attendance & Member Management Platform
 // Phase 2: Expanded into a complete Club Operating System
 //
-// TODO: migrate money fields (Club.dues, Transaction.amount, Budget.allocated,
-// Budget.spent, InventoryItem.purchasePrice/currentValue,
-// InventoryLoan.depositCollected/depositReturned, MaintenanceLog.cost) from
-// Float to Int (cents) or Decimal — see review report H22. Floats are not safe
-// for currency; we keep them as Float for now to avoid a breaking migration in
-// this patch set, but this must be addressed before any real money handling.
+// This is the Postgres / Supabase schema. Changes from the SQLite version:
+//   - All JSON-as-string fields now use Json type (Postgres JSONB)
+//   - All currency fields now use Decimal @db.Decimal(10, 2) instead of Float
+//   - Added indexes for hot query paths
+//   - Added User.supabaseAuthId for linking to Supabase Auth (Phase 3)
+//
+// Note: Float is still used for non-currency values (geographic coordinates,
+// time durations like volunteer hours and maxBookingHours).
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -24,7 +26,8 @@ model User {
   id             String   @id @default(cuid())
   email          String   @unique
   name           String
-  passwordHash   String?  // scrypt hash, null for users created via invites/SSO
+  passwordHash   String?  // scrypt hash, null for users created via invites/SSO (removed in Phase 3)
+  supabaseAuthId String?  @unique  // links to auth.users.id after Supabase Auth migration
   role           UserRole @default(STUDENT)
   studentId      String?  // School-issued student ID
   grade          Int?     // 9-12
@@ -35,9 +38,9 @@ model User {
   house          String?  // School house / advisory group
   status         UserStatus @default(ACTIVE)
   bio            String?
-  interests      String?  // JSON array
-  skills         String?  // JSON array
-  socialLinks    String?  // JSON object {linkedin, github, instagram, etc}
+  interests      Json?  // JSON array
+  skills         Json?  // JSON array
+  socialLinks    Json?  // JSON object {linkedin, github, instagram, etc}
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -120,14 +123,14 @@ model Club {
   defaultDay   String?  // e.g. "MONDAY"
   defaultTime  String?  // e.g. "15:30"
   capacity     Int      @default(50)
-  dues         Float    @default(0)
+  dues         Decimal @db.Decimal(10, 2)    @default(0)
   duesCurrency String   @default("USD")
   isPublic     Boolean  @default(true)
   requireApproval Boolean @default(false)
   status       ClubStatus @default(ACTIVE)
   slug         String?  @unique // for public portal URL
   mission      String?
-  tags         String?  // JSON array
+  tags         Json?  // JSON array
   // JSON string array of enabled module IDs (e.g. ["members","attendance","events"]).
   // null = legacy club, treated as "all modules on" for backward compat.
   // New clubs get CORE_MODULES from lib/clubhub/modules on creation.
@@ -173,6 +176,7 @@ model Club {
 
   advisor      User?    @relation("ClubAdvisor", fields: [advisorId], references: [id])
   president    User?    @relation("ClubPresident", fields: [presidentId], references: [id])
+
 }
 
 enum ClubCategory {
@@ -206,7 +210,7 @@ model Membership {
   joinedAt     DateTime       @default(now())
   leftAt       DateTime?
   status       MembershipStatus @default(ACTIVE)
-  customData   String?        // JSON string of custom field values
+  customData   Json?  // JSON string of custom field values
   notes        String?
   points       Int            @default(0)
   streak       Int            @default(0)
@@ -217,6 +221,9 @@ model Membership {
   transactions Transaction[]
 
   @@unique([userId, clubId])
+  @@index([clubId])
+  @@index([userId])
+
 }
 
 enum MembershipRole {
@@ -246,7 +253,7 @@ model CustomField {
   name        String
   label       String
   type        CustomFieldType
-  options     String?        // JSON array of options for SELECT/MULTISELECT/RADIO
+  options     Json?  // JSON array of options for SELECT/MULTISELECT/RADIO
   required    Boolean        @default(false)
   defaultValue String?
   description String?
@@ -258,6 +265,9 @@ model CustomField {
 
   club        Club?          @relation(fields: [clubId], references: [id], onDelete: Cascade)
   form        Form?          @relation(fields: [formId], references: [id], onDelete: Cascade)
+  @@index([clubId])
+  @@index([formId])
+
 }
 
 enum CustomFieldType {
@@ -298,9 +308,9 @@ model Event {
   parentEventId String?       // For recurring instances
   status       EventStatus    @default(SCHEDULED)
   creatorId    String?
-  chaperoneIds String?        // JSON array of user IDs
-  checklist    String?        // JSON array of {item, done}
-  metadata     String?        // JSON blob for extra custom data
+  chaperoneIds Json?  // JSON array of user IDs
+  checklist    Json?  // JSON array of {item, done}
+  metadata     Json?  // JSON blob for extra custom data
   meetingLink  String?        // Zoom/Meet link for virtual events
   coverImage   String?
   isLivestreamed Boolean      @default(false)
@@ -321,6 +331,9 @@ model Event {
   excuses      AttendanceExcuse[]
   reminders    AttendanceReminder[]
   photoAlbums  PhotoAlbum[]
+
+  @@index([clubId, startTime])
+  @@index([status])
 }
 
 enum EventType {
@@ -364,7 +377,7 @@ model Attendance {
   excusedBy    String?
   excusedReason String?
   pointsEarned Int              @default(0)
-  metadata     String?          // JSON blob for custom attendance fields
+  metadata     Json?  // JSON blob for custom attendance fields
   durationMinutes Int?          // For partial attendance
   createdAt    DateTime         @default(now())
   updatedAt    DateTime @updatedAt
@@ -373,6 +386,9 @@ model Attendance {
   user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([eventId, userId])
+  @@index([userId])
+  @@index([eventId])
+
 }
 
 enum AttendanceStatus {
@@ -418,6 +434,7 @@ model CheckIn {
 
   event        Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
   operator     User?    @relation("CheckInOperator", fields: [operatorId], references: [id])
+
 }
 
 // ============================================================
@@ -437,6 +454,7 @@ model EventRSVP {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([eventId, userId])
+
 }
 
 enum RSVPStatus {
@@ -462,13 +480,15 @@ model Announcement {
   sendSMS      Boolean        @default(false)
   scheduledFor DateTime?
   expiresAt    DateTime?
-  readBy       String?        // JSON array of user IDs (legacy)
+  readBy       Json?  // JSON array of user IDs (legacy)
   createdAt    DateTime       @default(now())
   updatedAt    DateTime @updatedAt
 
   club         Club           @relation(fields: [clubId], references: [id], onDelete: Cascade)
   author       User           @relation(fields: [authorId], references: [id])
   reads        AnnouncementRead[]
+  @@index([clubId, createdAt])
+
 }
 
 model AnnouncementRead {
@@ -481,6 +501,7 @@ model AnnouncementRead {
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([announcementId, userId])
+
 }
 
 enum AnnouncementPriority {
@@ -500,13 +521,14 @@ model Badge {
   description String?
   icon        String   @default("🏆")
   color       String   @default("#f59e0b")
-  criteria    String?  // JSON criteria spec
+  criteria    Json?  // JSON criteria spec
   points      Int      @default(0)
   tier        String   @default("BRONZE")
   createdAt   DateTime @default(now())
 
   club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
   userBadges  UserBadge[]
+
 }
 
 model UserBadge {
@@ -520,6 +542,7 @@ model UserBadge {
   badge     Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
 
   @@unique([userId, badgeId])
+
 }
 
 // ============================================================
@@ -567,6 +590,7 @@ model ClubSetting {
   motto                  String?
 
   club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
 }
 
 // ============================================================
@@ -579,13 +603,17 @@ model AuditLog {
   entity      String   // Club | User | Event | Attendance | etc.
   entityId    String?
   clubId      String?
-  before      String?  // JSON
-  after       String?  // JSON
+  before      Json?  // JSON
+  after       Json?  // JSON
   ipAddress   String?
   userAgent   String?
   timestamp   DateTime @default(now())
 
   user        User?    @relation(fields: [userId], references: [id])
+  @@index([clubId, timestamp])
+  @@index([userId, timestamp])
+  @@index([entity, entityId])
+
 }
 
 // ============================================================
@@ -603,6 +631,7 @@ model ParentGuardian {
   student   User     @relation("ParentGuardianStudent", fields: [studentId], references: [id], onDelete: Cascade)
 
   @@unique([parentId, studentId])
+
 }
 
 // ============================================================
@@ -620,6 +649,9 @@ model ClubInvite {
   createdAt DateTime @default(now())
 
   club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  @@index([clubId])
+  @@index([email])
+
 }
 
 // ============================================================
@@ -634,7 +666,7 @@ model Transaction {
   clubId      String
   type        TransactionType
   category    String   // dues | supplies | fundraiser | equipment | travel | food | prize | other
-  amount      Float
+  amount      Decimal @db.Decimal(10, 2)
   description String?
   date        DateTime @default(now())
   recordedById String?
@@ -650,6 +682,9 @@ model Transaction {
   club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
   recordedBy  User?    @relation("TransactionRecorder", fields: [recordedById], references: [id])
   member      Membership? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  @@index([clubId, date])
+  @@index([memberId])
+
 }
 
 enum TransactionType {
@@ -672,14 +707,15 @@ model Budget {
   clubId      String
   name        String   // e.g. "Fall 2026 Semester"
   category    String
-  allocated   Float
-  spent       Float    @default(0)
+  allocated   Decimal @db.Decimal(10, 2)
+  spent       Decimal @db.Decimal(10, 2)    @default(0)
   startDate   DateTime
   endDate     DateTime?
   notes       String?
   createdAt   DateTime @default(now())
 
   club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
 }
 
 // ============================================================
@@ -708,6 +744,9 @@ model VolunteerHours {
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   event        Event?   @relation(fields: [eventId], references: [id], onDelete: SetNull)
   approvedBy   User?    @relation("HoursApprover", fields: [approvedById], references: [id])
+  @@index([clubId, status])
+  @@index([userId, status])
+
 }
 
 enum VolunteerHoursStatus {
@@ -734,13 +773,15 @@ model Poll {
   endDate      DateTime
   eventId      String?  // optional link to event
   isOfficial   Boolean @default(false)   // official election vs casual poll
-  eligibility  String?  // JSON spec: { roles: [], grades: [] }
+  eligibility  Json?  // JSON spec: { roles: [], grades: [] }
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   club         Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
   options      PollOption[]
   votes        PollVote[]
+
+  @@index([clubId, status])
 }
 
 enum PollType {
@@ -771,6 +812,7 @@ model PollOption {
 
   poll      Poll     @relation(fields: [pollId], references: [id], onDelete: Cascade)
   votes     PollVote[]
+
 }
 
 model PollVote {
@@ -786,6 +828,7 @@ model PollVote {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([pollId, optionId, userId])
+
 }
 
 // ============================================================
@@ -810,6 +853,8 @@ model Form {
   club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
   fields      CustomField[]
   responses   FormResponse[]
+  @@index([clubId, status])
+
 }
 
 enum FormType {
@@ -836,12 +881,14 @@ model FormResponse {
   id        String   @id @default(cuid())
   formId    String
   userId    String?
-  data      String   // JSON of {fieldId: value}
+  data      Json  // JSON of {fieldId: value}
   submittedAt DateTime @default(now())
   ipAddress String?
 
   form      Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
   user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([formId, submittedAt])
 }
 
 // ============================================================
@@ -858,6 +905,7 @@ model TaskList {
 
   club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
   tasks     Task[]
+
 }
 
 model Task {
@@ -875,9 +923,9 @@ model Task {
   dueDate     DateTime?
   estimatedMinutes Int?
   actualMinutes Int?
-  tags        String?  // JSON array
-  checklist   String?  // JSON array of {text, done}
-  attachments String?  // JSON array of URLs
+  tags        Json?  // JSON array
+  checklist   Json?  // JSON array of {text, done}
+  attachments Json?  // JSON array of URLs
   sortOrder   Int      @default(0)
   completedAt DateTime?
   createdAt   DateTime @default(now())
@@ -888,6 +936,10 @@ model Task {
   assignee    User?    @relation("TaskAssignee", fields: [assigneeId], references: [id])
   creator     User?    @relation("TaskCreator", fields: [creatorId], references: [id])
   committee   Committee? @relation(fields: [committeeId], references: [id], onDelete: SetNull)
+
+  @@index([clubId, status])
+  @@index([assigneeId])
+  @@index([dueDate])
 }
 
 enum TaskStatus {
@@ -920,6 +972,8 @@ model Committee {
   lead        User?    @relation("CommitteeLead", fields: [leadId], references: [id])
   members     CommitteeMember[]
   tasks       Task[]
+  @@index([clubId])
+
 }
 
 model CommitteeMember {
@@ -933,6 +987,7 @@ model CommitteeMember {
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([committeeId, userId])
+
 }
 
 // ============================================================
@@ -952,11 +1007,12 @@ model Resource {
   maxBookingHours Float @default(8)
   requiresApproval Boolean @default(false)
   contactUserId String?
-  tags        String?  // JSON array
+  tags        Json?  // JSON array
   createdAt   DateTime @default(now())
 
   club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
   bookings    ResourceBooking[]
+
 }
 
 enum ResourceType {
@@ -987,6 +1043,8 @@ model ResourceBooking {
 
   resource    Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
   user        User     @relation("ResourceBooker", fields: [userId], references: [id])
+  @@index([resourceId, startTime])
+
 }
 
 enum BookingStatus {
@@ -1012,20 +1070,21 @@ model InventoryItem {
   quantityAvailable Int @default(1)
   condition   ItemCondition @default(NEW)
   purchaseDate DateTime?
-  purchasePrice Float?
-  currentValue Float?
+  purchasePrice Decimal? @db.Decimal(10, 2)
+  currentValue Decimal? @db.Decimal(10, 2)
   location    String?
   imageUrl    String?
   notes       String?
   isLoanable  Boolean  @default(true)
   loanPeriodDays Int @default(7)
-  depositAmount Float @default(0)
+  depositAmount Decimal @db.Decimal(10, 2) @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
   loans       InventoryLoan[]
   maintenanceLogs MaintenanceLog[]
+
 }
 
 enum ItemCondition {
@@ -1047,14 +1106,17 @@ model InventoryLoan {
   returnedDate DateTime?
   conditionAtCheckout String?
   conditionAtReturn String?
-  depositCollected Float @default(0)
-  depositReturned Float?
+  depositCollected Decimal @db.Decimal(10, 2) @default(0)
+  depositReturned Decimal? @db.Decimal(10, 2)
   notes       String?
   status      LoanStatus @default(OUT)
   createdAt   DateTime @default(now())
 
   item        InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([itemId, status])
+  @@index([userId, status])
+
 }
 
 enum LoanStatus {
@@ -1079,7 +1141,7 @@ model Document {
   fileSize    Int?
   version     Int      @default(1)
   uploadedById String?
-  tags        String?  // JSON array
+  tags        Json?  // JSON array
   isPublic    Boolean  @default(false)
   viewCount   Int      @default(0)
   createdAt   DateTime @default(now())
@@ -1088,6 +1150,8 @@ model Document {
   club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
   uploadedBy  User?    @relation("DocumentUploader", fields: [uploadedById], references: [id])
   comments    DocumentComment[]
+  @@index([clubId, updatedAt])
+
 }
 
 model MeetingMinutes {
@@ -1095,9 +1159,9 @@ model MeetingMinutes {
   eventId     String   @unique
   clubId      String
   content     String   // markdown
-  attendance  String?  // JSON summary
-  decisions   String?  // JSON array of decision strings
-  actionItems String?  // JSON array of {text, assignee, due}
+  attendance  Json?  // JSON summary
+  decisions   Json?  // JSON array of decision strings
+  actionItems Json?  // JSON array of {text, assignee, due}
   nextMeeting String?
   recordedById String?
   isApproved  Boolean  @default(false)
@@ -1123,13 +1187,14 @@ model Notification {
   priority    String   @default("normal") // low | normal | high | urgent
   isRead      Boolean  @default(false)
   readAt      DateTime?
-  metadata    String?  // JSON for extra data
+  metadata    Json?  // JSON for extra data
   clubId      String?
   createdAt   DateTime @default(now())
 
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, isRead])
+
 }
 
 // ============================================================
@@ -1147,7 +1212,7 @@ model AlumniProfile {
   location     String?
   linkedin     String?
   mentorshipAvailable Boolean @default(false)
-  mentorshipAreas String?  // JSON array
+  mentorshipAreas Json?  // JSON array
   willingToDonate Boolean @default(false)
   willingToSpeak Boolean @default(false)
   newsletter   Boolean @default(true)
@@ -1157,6 +1222,8 @@ model AlumniProfile {
 
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   club         Club?    @relation(fields: [clubId], references: [id], onDelete: SetNull)
+  @@index([clubId])
+
 }
 
 // ============================================================
@@ -1171,7 +1238,7 @@ model ClubApplication {
   grade       Int?
   studentId   String?
   phone       String?
-  responses   String   // JSON of form responses
+  responses   Json  // JSON of form responses
   status      ApplicationStatus @default(PENDING)
   reviewedById String?
   reviewedAt  DateTime?
@@ -1183,6 +1250,8 @@ model ClubApplication {
 
   club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
   user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([clubId, status])
+
 }
 
 enum ApplicationStatus {
@@ -1206,13 +1275,14 @@ model AiInsight {
   title       String
   body        String
   recommendation String?
-  data        String?  // JSON evidence
+  data        Json?  // JSON evidence
   isResolved  Boolean  @default(false)
   resolvedAt  DateTime?
   createdAt   DateTime @default(now())
 
   club        Club?    @relation(fields: [clubId], references: [id], onDelete: Cascade)
   user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
 }
 
 enum InsightType {
@@ -1237,7 +1307,7 @@ model Webhook {
   clubId      String
   name        String
   url         String
-  events      String   // JSON array of event types
+  events      Json  // JSON array of event types
   secret      String?
   isActive    Boolean  @default(true)
   lastTriggeredAt DateTime?
@@ -1245,6 +1315,7 @@ model Webhook {
   createdAt   DateTime @default(now())
 
   club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
 }
 
 model EmailTemplate {
@@ -1274,6 +1345,9 @@ model MagicLink {
   expiresAt   DateTime
   usedAt      DateTime?
   createdAt   DateTime @default(now())
+  @@index([email])
+  @@index([expiresAt])
+
 }
 
 model UserSession {
@@ -1286,6 +1360,8 @@ model UserSession {
   createdAt   DateTime @default(now())
 
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, expiresAt])
+
 }
 
 // ----- API KEYS for programmatic access -----
@@ -1295,13 +1371,15 @@ model ApiKey {
   name        String
   keyHash     String   @unique  // hashed key (never store plaintext)
   prefix      String   // first 8 chars for identification
-  scopes      String   // JSON array of scopes
+  scopes      Json  // JSON array of scopes
   createdBy   String?
   lastUsedAt  DateTime?
   expiresAt   DateTime?
   createdAt   DateTime @default(now())
 
   club        Club?    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  @@index([clubId])
+
 }
 
 // ----- EMAIL DELIVERY QUEUE & LOG -----
@@ -1314,7 +1392,7 @@ model EmailQueue {
   fromEmail   String?
   subject     String
   body        String
-  mergeData   String?  // JSON
+  mergeData   Json?  // JSON
   status      String   @default("QUEUED")  // QUEUED | SENT | FAILED | CANCELLED
   attempts    Int      @default(0)
   lastError   String?
@@ -1327,6 +1405,7 @@ model EmailQueue {
 
   @@index([status, scheduledFor])
   @@index([clubId])
+
 }
 
 model EmailLog {
@@ -1344,6 +1423,7 @@ model EmailLog {
   club        Club?    @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
   @@index([clubId, sentAt])
+
 }
 
 model SmsLog {
@@ -1357,6 +1437,7 @@ model SmsLog {
   sentAt      DateTime @default(now())
 
   club        Club?    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
 }
 
 // ----- SAVED VIEWS per user -----
@@ -1366,13 +1447,15 @@ model SavedView {
   clubId      String?
   tab         String   // dashboard | members | events | etc.
   name        String
-  filters     String   // JSON
+  filters     Json  // JSON
   isDefault   Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   club        Club?    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  @@index([userId, tab])
+
 }
 
 // ----- IN-APP MESSAGING -----
@@ -1387,6 +1470,7 @@ model Conversation {
   club        Club?    @relation(fields: [clubId], references: [id], onDelete: Cascade)
   participants ConversationParticipant[]
   messages    Message[]
+
 }
 
 model ConversationParticipant {
@@ -1400,6 +1484,8 @@ model ConversationParticipant {
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([conversationId, userId])
+  @@index([userId])
+
 }
 
 model Message {
@@ -1407,13 +1493,15 @@ model Message {
   conversationId  String
   senderId        String
   body            String
-  attachments     String?  // JSON
+  attachments     Json?  // JSON
   editedAt        DateTime?
   deletedAt       DateTime?
   createdAt       DateTime @default(now())
 
   conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender          User     @relation("MessageSender", fields: [senderId], references: [id])
+  @@index([conversationId, createdAt])
+
 }
 
 // ----- EQUIPMENT MAINTENANCE LOG -----
@@ -1423,7 +1511,7 @@ model MaintenanceLog {
   type        String   // SCHEDULED | REPAIR | INSPECTION | CLEANING | REPLACEMENT
   status      String   @default("SCHEDULED")  // SCHEDULED | IN_PROGRESS | COMPLETED | CANCELLED
   description String
-  cost        Float    @default(0)
+  cost        Decimal @db.Decimal(10, 2)    @default(0)
   vendor      String?
   performedById String?
   scheduledFor DateTime?
@@ -1433,6 +1521,8 @@ model MaintenanceLog {
 
   item        InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
   performedBy User?     @relation("MaintenancePerformer", fields: [performedById], references: [id])
+  @@index([itemId, status])
+
 }
 
 // ----- RECURRING EVENTS ENGINE -----
@@ -1442,14 +1532,16 @@ model RecurrenceRule {
   parentEventId String  // the template event
   frequency   String   // DAILY | WEEKLY | BIWEEKLY | MONTHLY | YEARLY
   interval    Int      @default(1)  // every N frequency units
-  byDays      String?  // JSON array: ["MO","WE","FR"] for weekly
-  byMonthDays String?  // JSON array of month days
+  byDays      Json?  // JSON array: ["MO","WE","FR"] for weekly
+  byMonthDays Json?  // JSON array of month days
   endDate     DateTime?
   count       Int?     // number of occurrences
   lastGeneratedAt DateTime?
   createdAt   DateTime @default(now())
 
   club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  @@index([clubId])
+
 }
 
 // ----- WAITLIST for full events -----
@@ -1467,6 +1559,8 @@ model EventWaitlist {
 
   event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
   user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([eventId, notifiedAt])
+
 }
 
 // ----- DIGEST SUBSCRIPTIONS -----
@@ -1485,6 +1579,7 @@ model DigestSubscription {
   club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
   @@unique([userId, clubId])
+
 }
 
 // ----- PHOTO ALBUMS -----
@@ -1502,6 +1597,8 @@ model PhotoAlbum {
   club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
   event       Event?   @relation(fields: [eventId], references: [id], onDelete: SetNull)
   photos      Photo[]
+  @@index([clubId, createdAt])
+
 }
 
 model Photo {
@@ -1515,6 +1612,8 @@ model Photo {
   uploadedAt  DateTime @default(now())
 
   album       PhotoAlbum @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  @@index([albumId, uploadedAt])
+
 }
 
 // ----- DOCUMENT COMMENTS / COLLABORATION -----
@@ -1530,6 +1629,8 @@ model DocumentComment {
 
   document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
   user        User     @relation("DocumentCommenter", fields: [userId], references: [id])
+  @@index([documentId, createdAt])
+
 }
 
 // ----- ATTENDANCE EXCUSES (parent-approved) -----
@@ -1548,6 +1649,9 @@ model AttendanceExcuse {
 
   event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([eventId])
+  @@index([userId, status])
+
 }
 
 // ----- ATTENDANCE REMINDERS -----
@@ -1567,6 +1671,7 @@ model AttendanceReminder {
   @@unique([eventId, userId, reminderType])
   @@index([sentAt, scheduledFor])
   @@index([userId])
+
 }
 
 // ----- MEMBER OFFBOARDING / ALUMNI TRANSITION -----
@@ -1577,13 +1682,16 @@ model MemberOffboarding {
   type        String   // GRADUATION | TRANSFER | RESIGNATION | REMOVAL
   reason      String?
   effectiveDate DateTime
-  survey      String?  // JSON exit survey
+  survey      Json?  // JSON exit survey
   farewellMessage String?
   alumniInviteSent Boolean @default(false)
   createdAt   DateTime @default(now())
 
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  @@index([clubId])
+  @@index([userId])
+
 }
 
 // ----- PARENT PORTAL ACCESS TOKENS -----
@@ -1596,4 +1704,5 @@ model ParentPortalToken {
   createdAt   DateTime @default(now())
 
   parent      User     @relation("ParentPortalToken", fields: [parentId], references: [id], onDelete: Cascade)
+
 }
