@@ -22,6 +22,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!hasPermission(user, 'members:write', existing.clubId)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
+    // Self-approval guard — a member can't approve their own hours, even if
+    // they happen to hold an officer role that grants members:write.
+    if (existing.userId === user.id) {
+      return NextResponse.json({ error: 'cannot approve your own hours' }, { status: 403 })
+    }
+    // Terminal-state guard — once an entry has been APPROVED or REJECTED, it
+    // can't be re-reviewed. (Allowing re-review would let an officer flip
+    // approvals back and forth without an audit trail of the original
+    // decision.)
+    if (existing.status !== 'PENDING') {
+      return NextResponse.json({ error: 'already reviewed' }, { status: 409 })
+    }
   } else if (existing.userId !== user.id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }

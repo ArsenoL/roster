@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
 import { verifyModule } from '@/lib/clubhub/module-gate'
+import { clampStr, LIMITS } from '@/lib/clubhub/sanitize'
 
 // GET /api/applications?clubId=...&status=...
 // Reading applications (which contain applicant PII) is officer-only.
@@ -48,31 +49,36 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ applications: apps, summary })
 }
 
-// POST /api/applications — public submit form (any signed-in user can apply).
-// Auto-fills name/email/userId from the session if not provided.
+// POST /api/applications — submit an application. Auth required.
 export async function POST(req: NextRequest) {
   const __gate = await verifyModule(req, 'applications')
   if (__gate instanceof NextResponse) return __gate
 
   const body = await req.json()
-
-  // If the caller is signed in and didn't provide name/email, auto-fill from their account.
-  // This is used by the onboarding wizard so applicants don't have to retype their info.
   const currentUser = await getCurrentUser()
-  const name = body.name || currentUser?.name || ''
-  const email = body.email || currentUser?.email || ''
-  const userId = body.userId || currentUser?.id || null
+  if (!currentUser) return NextResponse.json({ error: 'Sign in to apply' }, { status: 401 })
 
-  if (!name || !email) {
-    return NextResponse.json({ error: 'Name and email are required' }, { status: 400 })
+  const name = clampStr(body.name || currentUser.name, LIMITS.NAME)
+  const email = currentUser.email
+  const userId = currentUser.id
+
+  if (!name || !email) return NextResponse.json({ error: 'Name and email are required' }, { status: 400 })
+  if (!body.clubId) return NextResponse.json({ error: 'clubId is required' }, { status: 400 })
+
+  const settings = await db.clubSetting.findUnique({ where: { clubId: body.clubId } })
+  if (settings && settings.enableApplications === false) {
+    return NextResponse.json({ error: 'Applications are not enabled for this club' }, { status: 403 })
   }
+
+  const recent = await db.clubApplication.findFirst({
+    where: { clubId: body.clubId, userId, createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+    select: { id: true },
+  })
+  if (recent) return NextResponse.json({ error: 'You already applied recently. Please wait before applying again.' }, { status: 429 })
 
   const app = await db.clubApplication.create({
     data: {
-      clubId: body.clubId,
-      userId,
-      name,
-      email,
+      clubId: body.clubId, userId, name, email,
       grade: body.grade ?? null,
       studentId: body.studentId || null,
       phone: body.phone || null,
@@ -80,30 +86,16 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  // Notify club admins (president + VP). The faculty advisor is a User.role
-  // (global), not a MembershipRole — we look them up via Club.advisorId below.
   const admins = await db.membership.findMany({
     where: { clubId: body.clubId, role: { in: ['PRESIDENT', 'VICE_PRESIDENT'] } },
     select: { userId: true },
   })
-  // Also include the club's faculty advisor if one is set.
-  const club = await db.club.findUnique({
-    where: { id: body.clubId },
-    select: { advisorId: true },
-  })
+  const club = await db.club.findUnique({ where: { id: body.clubId }, select: { advisorId: true } })
   const userIds = new Set(admins.map(a => a.userId))
   if (club?.advisorId) userIds.add(club.advisorId)
   await Promise.all(Array.from(userIds).map(userId => db.notification.create({
-    data: {
-      userId,
-      type: 'application',
-      title: 'New application received',
-      body: `${name} applied to join`,
-      link: '/applications',
-      priority: 'normal',
-      clubId: body.clubId,
-    },
-  })))
+    data: { userId, type: 'application', title: 'New application received', body: `${name} applied to join`, link: '/applications', priority: 'normal', clubId: body.clubId },
+  }).catch(() => {})))
 
   return NextResponse.json(app)
 }

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useFetch, apiPatch } from '@/lib/clubhub/hooks'
+import { useFetch, apiPost } from '@/lib/clubhub/hooks'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -27,10 +27,10 @@ export function AlumniTab({ clubId }: { clubId: string }) {
  return (
  <div className="space-y-4">
  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
- <Card><CardContent className="p-4"><div className="w-8 h-8 rounded-lg bg-foreground dark:bg-blue-950/30 flex items-center justify-center mb-2"><GraduationCap className="h-4 w-4 text-foreground" /></div><div className="text-xs text-muted-foreground">Total Alumni</div><div className="text-xl font-bold">{summary.total}</div></CardContent></Card>
- <Card><CardContent className="p-4"><div className="w-8 h-8 rounded-lg bg-foreground dark:bg-emerald-950/30 flex items-center justify-center mb-2"><Heart className="h-4 w-4 text-foreground" /></div><div className="text-xs text-muted-foreground">Mentors</div><div className="text-xl font-bold">{summary.mentors}</div></CardContent></Card>
- <Card><CardContent className="p-4"><div className="w-8 h-8 rounded-lg bg-foreground dark:bg-amber-950/30 flex items-center justify-center mb-2"><Mic className="h-4 w-4 text-foreground" /></div><div className="text-xs text-muted-foreground">Speakers</div><div className="text-xl font-bold">{summary.speakers}</div></CardContent></Card>
- <Card><CardContent className="p-4"><div className="w-8 h-8 rounded-lg bg-foreground dark:bg-purple-950/30 flex items-center justify-center mb-2"><Award className="h-4 w-4 text-foreground" /></div><div className="text-xs text-muted-foreground">Donors</div><div className="text-xl font-bold">{summary.donors}</div></CardContent></Card>
+ <Card><CardContent className="p-4"><div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-950/30 flex items-center justify-center mb-2"><GraduationCap className="h-4 w-4 text-blue-700 dark:text-blue-300" /></div><div className="text-xs text-muted-foreground">Total Alumni</div><div className="text-xl font-bold">{summary.total}</div></CardContent></Card>
+ <Card><CardContent className="p-4"><div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-950/30 flex items-center justify-center mb-2"><Heart className="h-4 w-4 text-emerald-700 dark:text-emerald-300" /></div><div className="text-xs text-muted-foreground">Mentors</div><div className="text-xl font-bold">{summary.mentors}</div></CardContent></Card>
+ <Card><CardContent className="p-4"><div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-950/30 flex items-center justify-center mb-2"><Mic className="h-4 w-4 text-amber-700 dark:text-amber-300" /></div><div className="text-xs text-muted-foreground">Speakers</div><div className="text-xl font-bold">{summary.speakers}</div></CardContent></Card>
+ <Card><CardContent className="p-4"><div className="w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-950/30 flex items-center justify-center mb-2"><Award className="h-4 w-4 text-purple-700 dark:text-purple-300" /></div><div className="text-xs text-muted-foreground">Donors</div><div className="text-xl font-bold">{summary.donors}</div></CardContent></Card>
  </div>
 
  <Tabs defaultValue="directory">
@@ -68,7 +68,13 @@ export function AlumniTab({ clubId }: { clubId: string }) {
  {a.college && <div className="flex items-center gap-1"><GraduationCap className="h-3 w-3" />{a.college}{a.major ? ` · ${a.major}` : ''}</div>}
  {a.career && <div className="flex items-center gap-1"><Briefcase className="h-3 w-3" />{a.career}{a.employer ? ` @ ${a.employer}` : ''}</div>}
  {a.location && <div className="flex items-center gap-1"><MapPin className="h-3 w-3" />{a.location}</div>}
- {a.linkedin && <a href={a.linkedin} target="_blank" className="flex items-center gap-1 text-foreground hover:underline"><Linkedin className="h-3 w-3" />LinkedIn</a>}
+ {a.linkedin && ((): any => {
+ // Validate the URL is http(s) — `javascript:` LinkedIn URLs are an XSS vector.
+ if (!/^https?:\/\//i.test(a.linkedin)) {
+ return <span className="flex items-center gap-1 text-muted-foreground"><Linkedin className="h-3 w-3" />LinkedIn</span>
+ }
+ return <a href={a.linkedin} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-foreground hover:underline"><Linkedin className="h-3 w-3" />LinkedIn</a>
+ })()}
  </div>
  <div className="flex flex-wrap gap-1 mt-2">
  {a.mentorshipAvailable && <Badge variant="outline" className="text-foreground text-[10px]"><Heart className="h-2.5 w-2.5 mr-1" />Mentor</Badge>}
@@ -150,16 +156,10 @@ function AddAlumniDialog({ open, onOpenChange, clubId, onCreated }: any) {
  try {
  if (clubId === 'ALL') { toast.error('Select a specific club'); return }
  if (!form.userId) { toast.error('Select a user'); return }
- await apiPatch('/api/alumni', {}).catch(() => {})
- const r = await fetch('/api/alumni', {
- method: 'POST',
- headers: { 'Content-Type': 'application/json' },
- body: JSON.stringify({ ...form, clubId }),
- })
- if (!r.ok) throw new Error('Failed')
+ await apiPost('/api/alumni', { ...form, clubId })
  toast.success('Alumni added')
  onCreated()
- } catch (e: any) { toast.error(e.message) }
+ } catch (e: any) { if (!e?.silent) toast.error(e.message) }
  }
 
  return (

@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Switch } from '@/components/ui/switch'
-import { Image as ImageIcon, Plus, ArrowLeft, Trash2, Calendar, ExternalLink } from 'lucide-react'
+import { Image as ImageIcon, Plus, ArrowLeft, Trash2, Calendar, ExternalLink, ImageOff } from 'lucide-react'
 import { toast } from 'sonner'
 
 export function PhotoAlbumsTab({ clubId }: { clubId: string }) {
@@ -50,9 +50,9 @@ export function PhotoAlbumsTab({ clubId }: { clubId: string }) {
  ) : (
  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
  {albums.map((a) => (
- <Card key={a.id} className="overflow-hidden cursor-pointer hover: transition-shadow" onClick={() => setOpenAlbum(a.id)}>
+ <Card key={a.id} className="overflow-hidden cursor-pointer hover:transition-shadow" onClick={() => setOpenAlbum(a.id)}>
  <div className="aspect-square bg-muted flex items-center justify-center overflow-hidden">
- {a.photos?.[0]?.url ? (
+ {a.photos?.[0]?.url && /^https?:\/\//i.test(a.photos[0].url) ? (
  <img src={a.photos[0].url} alt={a.title} className="w-full h-full object-cover" />
  ) : (
  <ImageIcon className="h-10 w-10 text-muted-foreground/40" />
@@ -159,7 +159,13 @@ function AlbumView({ albumId, onBack }: { albumId: string; onBack: () => void })
  {album.photos.map((p: any) => (
  <Card key={p.id} className="overflow-hidden group relative">
  <div className="aspect-square bg-muted">
+ {p.url && /^https?:\/\//i.test(p.url) ? (
  <img src={p.url} alt={p.caption || ''} className="w-full h-full object-cover" />
+ ) : (
+ <div className="w-full h-full flex items-center justify-center">
+ <ImageOff className="h-8 w-8 text-muted-foreground/40" />
+ </div>
+ )}
  </div>
  {p.caption && (
  <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white p-2 text-xs">
@@ -174,6 +180,7 @@ function AlbumView({ albumId, onBack }: { albumId: string; onBack: () => void })
  >
  <Trash2 className="h-3.5 w-3.5" />
  </Button>
+ {p.url && /^https?:\/\//i.test(p.url) && (
  <a
  href={p.url}
  target="_blank"
@@ -182,6 +189,7 @@ function AlbumView({ albumId, onBack }: { albumId: string; onBack: () => void })
  >
  <ExternalLink className="h-3.5 w-3.5" />
  </a>
+ )}
  </Card>
  ))}
  </div>

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { enqueueEmail } from '@/lib/clubhub/dispatchers'
 import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
+import { verifySecretFromHeader } from '@/lib/clubhub/sanitize'
 
 /**
  * POST /api/digests/send
@@ -16,22 +17,18 @@ import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
  *     first (see /api/cron/* for the same pattern).
  */
 export async function POST(req: NextRequest) {
-  const url = new URL(req.url)
   const expectedSecret = process.env.CRON_SECRET
-  const providedSecret =
-    url.searchParams.get('secret') ||
-    (await req.clone().json().catch(() => ({}))).secret
+  const isCron = verifySecretFromHeader(req, 'x-cron-secret', expectedSecret)
 
-  let isCron = false
-  if (expectedSecret && providedSecret === expectedSecret) {
-    isCron = true
-  }
+  // Read the body exactly once — the previous implementation cloned the
+  // request and parsed JSON twice (once for the secret, once for the real
+  // body), which is wasteful and brittle.
+  const body = await req.json().catch(() => ({}))
 
   // If not authenticated as cron, require an authed user with write perm.
   if (!isCron) {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    const body = await req.json().catch(() => ({}))
     if (body.clubId && !hasPermission(user, 'announcements:write', body.clubId)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
@@ -44,7 +41,6 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const body = await req.json().catch(() => ({}))
   const now = new Date()
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
 

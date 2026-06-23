@@ -17,6 +17,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 
   const body = await req.json()
+
+  // Validate status against the allowed enum (if provided).
+  const ALLOWED_STATUSES = ['REPORTED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']
+  if (body.status !== undefined && !ALLOWED_STATUSES.includes(body.status)) {
+    return NextResponse.json({ error: 'Invalid status' }, { status: 400 })
+  }
+
   const update: any = {}
   if (body.status !== undefined) update.status = body.status
   if (body.description !== undefined) update.description = body.description
@@ -28,10 +35,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const log = await db.maintenanceLog.update({ where: { id }, data: update })
 
-  // Sync item condition based on completion status
-  if (body.status === 'COMPLETED' && body.itemId) {
+  // Sync item condition based on completion status. Always use the item
+  // already linked to this maintenance log (existing.itemId) — never trust
+  // body.itemId, which would let a caller update an arbitrary item in
+  // another club.
+  if (body.status === 'COMPLETED' && existing.itemId) {
     await db.inventoryItem.update({
-      where: { id: body.itemId },
+      where: { id: existing.itemId },
       data: { condition: body.newCondition || 'GOOD' },
     })
   }

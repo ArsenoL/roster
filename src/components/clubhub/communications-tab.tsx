@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useFetch, apiPost } from '@/lib/clubhub/hooks'
+import { useAuth } from '@/lib/clubhub/use-auth'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -64,7 +65,7 @@ export function CommunicationsTab({ clubId }: { clubId: string }) {
 function AnnouncementCard({ announcement }: { announcement: Announcement }) {
  const priority = ANNOUNCEMENT_PRIORITIES.find(p => p.value === announcement.priority) || ANNOUNCEMENT_PRIORITIES[1]
  return (
- <Card className={`${announcement.isPinned ? 'border-primary/40 bg-primary/5' : ''} hover: transition-shadow`}>
+ <Card className={`${announcement.isPinned ? 'border-primary/40 bg-primary/5' : ''} hover:transition-shadow`}>
  <CardContent className="p-4">
  <div className="flex items-start gap-3">
  {announcement.isPinned && (
@@ -126,14 +127,13 @@ function CreateAnnouncementDialog({ open, onOpenChange, clubId, onCreated }: {
  isPinned: false, sendEmail: false, sendSMS: false, scheduledFor: ''
  })
 
- // Get first member as author (the"current user")
- const { data: membersData } = useFetch<{ members: any[] }>(
- clubId !== 'ALL' ? `/api/members?clubId=${clubId}&limit=1` : `/api/members?limit=1`
- )
- const authorId = membersData?.members?.[0]?.userId
+ // Use the signed-in user as the author (never impersonate another member).
+ const { user } = useAuth()
+ const authorId = user?.id
 
  const handleSubmit = async () => {
  if (clubId === 'ALL') { toast.error('Select a specific club'); return }
+ if (!authorId) { toast.error('Sign in to post an announcement'); return }
  if (!form.title || !form.content) { toast.error('Title and content required'); return }
  try {
  await apiPost('/api/announcements', {
@@ -213,7 +213,7 @@ function CreateAnnouncementDialog({ open, onOpenChange, clubId, onCreated }: {
  </div>
  <DialogFooter>
  <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
- <Button onClick={handleSubmit} disabled={!form.title || !form.content || clubId === 'ALL'}>
+ <Button onClick={handleSubmit} disabled={!form.title || !form.content || clubId === 'ALL' || !authorId}>
  <Megaphone className="h-4 w-4 mr-1" /> Post Announcement
  </Button>
  </DialogFooter>

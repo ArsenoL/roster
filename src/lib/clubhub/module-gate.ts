@@ -24,6 +24,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { isModuleEnabled, type ModuleId } from '@/lib/clubhub/modules'
+import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
 
 export interface ModuleGateSuccess {
   club: NonNullable<Awaited<ReturnType<typeof db.club.findUnique>>>
@@ -31,6 +32,13 @@ export interface ModuleGateSuccess {
 }
 
 export type ModuleGateResult = ModuleGateSuccess | NextResponse
+
+export interface ModuleGateOptions {
+  /** When true (default), require an authenticated session with club:read
+   *  on the resolved club (or a public club). Set to false for routes that
+   *  handle their own auth (e.g. public portal, webhook callbacks). */
+  requireAuth?: boolean
+}
 
 // Resolve clubId from request: query string, body (POST/PUT/PATCH), or params.
 async function resolveClubId(req: NextRequest, params?: Record<string, string>): Promise<string | undefined> {
@@ -58,8 +66,11 @@ async function resolveClubId(req: NextRequest, params?: Record<string, string>):
 export async function verifyModule(
   req: NextRequest,
   moduleId: ModuleId,
-  params?: Record<string, string>
+  params?: Record<string, string>,
+  options?: ModuleGateOptions
 ): Promise<ModuleGateResult> {
+  const requireAuth = options?.requireAuth !== false  // default true
+
   const clubId = await resolveClubId(req, params)
 
   if (!clubId) {
@@ -86,6 +97,22 @@ export async function verifyModule(
       },
       { status: 403 }
     )
+  }
+
+  // Membership check: when requireAuth is on (the default), the caller must
+  // have an authenticated session AND club:read on the resolved club. The
+  // only escape hatch is a public club (e.g. a portal page that anyone can
+  // view). Without this check, verifyModule was a pure module-flag check
+  // that did nothing to enforce club membership — any signed-in user could
+  // hit any enabled module on any club they knew the id of.
+  if (requireAuth) {
+    const user = await getCurrentUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    if (!hasPermission(user, 'club:read', clubId) && !club.isPublic) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
   }
 
   return { club, clubId }

@@ -75,7 +75,8 @@ export async function verifyPassword(
   const [, salt, hashHex] = parts
   try {
     const expected = Buffer.from(hashHex, 'hex')
-    const derived = await scrypt(password, salt, expected.length, SCRYPT_PARAMS)
+    if (expected.length !== SCRYPT_KEYLEN) return false
+    const derived = await scrypt(password, salt, SCRYPT_KEYLEN, SCRYPT_PARAMS)
     return derived.length === expected.length && timingSafeEqual(derived, expected)
   } catch {
     return false
@@ -118,10 +119,21 @@ export interface AuthUser {
   }>
 }
 
+function getAuthSecret(): string {
+  const secret = process.env.AUTH_SECRET
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('FATAL: AUTH_SECRET is not set. Refusing to start in production without a secret session key.')
+    }
+    return 'roster-dev-secret-change-me'
+  }
+  return secret
+}
+
 /** Sign a token with HMAC. */
 async function signToken(payload: string): Promise<string> {
   const { createHmac } = await import('crypto')
-  const secret = process.env.AUTH_SECRET || 'roster-dev-secret-change-me'
+  const secret = getAuthSecret()
   const sig = createHmac('sha256', secret).update(payload).digest('hex')
   return `${payload}.${sig}`
 }
@@ -129,7 +141,7 @@ async function signToken(payload: string): Promise<string> {
 /** Compute the expected HMAC signature for a given payload. */
 async function computeSig(payload: string): Promise<string> {
   const { createHmac } = await import('crypto')
-  const secret = process.env.AUTH_SECRET || 'roster-dev-secret-change-me'
+  const secret = getAuthSecret()
   return createHmac('sha256', secret).update(payload).digest('hex')
 }
 
@@ -276,7 +288,7 @@ export async function setSessionCookie(
   res.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    sameSite: 'strict',
     path: '/',
     maxAge: SESSION_DURATION_MS / 1000,
   })

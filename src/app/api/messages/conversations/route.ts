@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyModule } from '@/lib/clubhub/module-gate'
 import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
+import { isClubMember } from '@/lib/clubhub/sanitize'
 
 // GET /api/messages/conversations?clubId=...
 // Always scoped to the signed-in user — userId is NOT accepted as a param
@@ -92,6 +93,21 @@ export async function POST(req: NextRequest) {
   // If a clubId is provided, verify the caller can read that club.
   if (clubId && !hasPermission(user, 'club:read', clubId)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  // When clubId is provided, validate that every OTHER participant (i.e.
+  // every participant other than the caller) is an active member of that
+  // club. Without this, a caller could open a conversation scoped to clubA
+  // but invite participants who aren't members of clubA (cross-tenant
+  // contact enumeration / message delivery).
+  if (clubId) {
+    for (const uid of participantSet) {
+      if (uid === user.id) continue
+      const ok = await isClubMember(uid, clubId)
+      if (!ok) {
+        return NextResponse.json({ error: `Participant ${uid} is not a member of this club` }, { status: 400 })
+      }
+    }
   }
 
   const participantArray = Array.from(participantSet)

@@ -1,5 +1,12 @@
 // ClubHub — High School Club Attendance & Member Management Platform
 // Phase 2: Expanded into a complete Club Operating System
+//
+// TODO: migrate money fields (Club.dues, Transaction.amount, Budget.allocated,
+// Budget.spent, InventoryItem.purchasePrice/currentValue,
+// InventoryLoan.depositCollected/depositReturned, MaintenanceLog.cost) from
+// Float to Int (cents) or Decimal — see review report H22. Floats are not safe
+// for currency; we keep them as Float for now to avoid a breaking migration in
+// this patch set, but this must be addressed before any real money handling.
 
 generator client {
   provider = "prisma-client-js"
@@ -1317,6 +1324,9 @@ model EmailQueue {
 
   club        Club?    @relation(fields: [clubId], references: [id], onDelete: Cascade)
   template    EmailTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  @@index([status, scheduledFor])
+  @@index([clubId])
 }
 
 model EmailLog {
@@ -1332,6 +1342,8 @@ model EmailLog {
   sentAt      DateTime @default(now())
 
   club        Club?    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@index([clubId, sentAt])
 }
 
 model SmsLog {
@@ -1551,6 +1563,10 @@ model AttendanceReminder {
 
   event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId, reminderType])
+  @@index([sentAt, scheduledFor])
+  @@index([userId])
 }
 
 // ----- MEMBER OFFBOARDING / ALUMNI TRANSITION -----

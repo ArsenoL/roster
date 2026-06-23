@@ -95,11 +95,11 @@ function escapeHtml(s: string): string {
     .replace(/'/g, '&#39;')
 }
 
-/** True when SMTP is not configured and we're not in production. The API
- *  layer uses this to decide whether to surface dev-mode affordances
- *  (inline link, email preview) to the caller. */
+/** True only when explicitly enabled via env. The API layer uses this to
+ *  decide whether to surface dev-mode affordances (inline link, email
+ *  preview) to the caller. */
 export function isDevMailboxMode(): boolean {
-  return process.env.NODE_ENV !== 'production' && !process.env.SMTP_HOST
+  return process.env.DEV_MAILBOX === '1' || process.env.DEV_MAILBOX === 'true'
 }
 
 async function getTransporter() {
@@ -135,19 +135,18 @@ async function getTransporter() {
   return transporter
 }
 
-/** Merge {{field}} placeholders into a template string. */
-export function mergeTemplate(
-  template: string,
-  data: Record<string, any>
-): string {
-  return template.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_m, key: string) => {
+/** Merge {{field}} placeholders into a template string.
+ *  Values are HTML-escaped by default — use {{{field}}} for raw output
+ *  (only when you control the source of the value). */
+export function mergeTemplate(template: string, data: Record<string, any>): string {
+  return template.replace(/\{\{\{?\s*([\w.]+)\s*\}\}\}?/g, (m, key: string) => {
+    const isRaw = m.startsWith('{{{')
     const parts = key.split('.')
     let val: any = data
-    for (const p of parts) {
-      val = val?.[p]
-      if (val === undefined) break
-    }
-    return val === undefined || val === null ? '' : String(val)
+    for (const p of parts) { val = val?.[p]; if (val === undefined) break }
+    if (val === undefined || val === null) return ''
+    const s = String(val)
+    return isRaw ? s : escapeHtml(s)
   })
 }
 
@@ -198,17 +197,22 @@ export async function enqueueEmail(payload: EmailPayload): Promise<string> {
   return queueItem.id
 }
 
-/** Drain a single queue item — used by both inline sender and cron. */
+/** Drain a single queue item — used by both inline sender and cron.
+ *  Uses an atomic claim (updateMany + status filter) so concurrent cron /
+ *  inline senders can't double-process the same row. */
 export async function drainOne(queueId: string): Promise<boolean> {
+  const claim = await db.emailQueue.updateMany({
+    where: { id: queueId, status: 'QUEUED' },
+    data: { status: 'PROCESSING' },
+  })
+  if (claim.count === 0) return false
+
   const item = await db.emailQueue.findUnique({ where: { id: queueId } })
-  if (!item || item.status === 'SENT') return false
+  if (!item) return false
 
   const transport = await getTransporter()
   if (!transport) {
-    await db.emailQueue.update({
-      where: { id: queueId },
-      data: { status: 'FAILED', lastError: 'No transporter available', attempts: { increment: 1 } },
-    })
+    await db.emailQueue.update({ where: { id: queueId }, data: { status: 'FAILED', lastError: 'No transporter available', attempts: { increment: 1 } } })
     return false
   }
 
@@ -216,73 +220,24 @@ export async function drainOne(queueId: string): Promise<boolean> {
     const info = await transport.sendMail({
       from: item.fromEmail || process.env.EMAIL_FROM || 'noreply@roster.local',
       to: item.toName ? `${item.toName} <${item.toEmail}>` : item.toEmail,
-      subject: item.subject,
-      html: item.body,
+      subject: item.subject, html: item.body,
     })
 
-    // Dev mailbox capture — when SMTP isn't configured, also save the email
-    // HTML to disk so the developer can inspect what would have been sent.
-    // The status is still 'SENT' from nodemailer's perspective (the stream
-    // transport "delivered" it), but we annotate lastError with the dev
-    // mailbox path so it's discoverable in the EmailQueue table.
     if (isDevMailboxMode()) {
       try {
-        const devPath = await saveDevEmail({
-          to: item.toEmail,
-          subject: item.subject,
-          html: item.body,
-        })
+        const devPath = await saveDevEmail({ to: item.toEmail, subject: item.subject, html: item.body })
         console.log(`[email] Dev mailbox saved: ${devPath}`)
-        await db.emailQueue.update({
-          where: { id: queueId },
-          data: {
-            status: 'SENT',
-            sentAt: new Date(),
-            attempts: { increment: 1 },
-            lastError: `DEV_MAILBOX:${devPath}`,
-          },
-        })
-      } catch (e: any) {
-        console.error('[email] Failed to save dev mailbox copy', e)
-      }
+        await db.emailQueue.update({ where: { id: queueId }, data: { status: 'SENT', sentAt: new Date(), attempts: { increment: 1 }, lastError: `DEV_MAILBOX:${devPath}` } })
+      } catch (e: any) { console.error('[email] Failed to save dev mailbox copy', e) }
     } else {
-      await db.emailQueue.update({
-        where: { id: queueId },
-        data: { status: 'SENT', sentAt: new Date(), attempts: { increment: 1 } },
-      })
+      await db.emailQueue.update({ where: { id: queueId }, data: { status: 'SENT', sentAt: new Date(), attempts: { increment: 1 } } })
     }
 
-    await db.emailLog.create({
-      data: {
-        clubId: item.clubId,
-        toEmail: item.toEmail,
-        subject: item.subject,
-        status: 'SENT',
-        providerId: info?.messageId || info?.response || null,
-      },
-    })
-
+    await db.emailLog.create({ data: { clubId: item.clubId, toEmail: item.toEmail, subject: item.subject, status: 'SENT', providerId: info?.messageId || info?.response || null } })
     return true
   } catch (e: any) {
-    await db.emailQueue.update({
-      where: { id: queueId },
-      data: {
-        status: 'FAILED',
-        lastError: e?.message || 'Unknown error',
-        attempts: { increment: 1 },
-      },
-    })
-
-    await db.emailLog.create({
-      data: {
-        clubId: item.clubId,
-        toEmail: item.toEmail,
-        subject: item.subject,
-        status: 'FAILED',
-        error: e?.message,
-      },
-    })
-
+    await db.emailQueue.update({ where: { id: queueId }, data: { status: 'FAILED', lastError: (e?.message || 'Unknown error').slice(0, 1000), attempts: { increment: 1 } } })
+    await db.emailLog.create({ data: { clubId: item.clubId, toEmail: item.toEmail, subject: item.subject, status: 'FAILED', error: (e?.message || '').slice(0, 1000) } })
     return false
   }
 }
@@ -363,6 +318,26 @@ export async function emitWebhook(
 
     await Promise.all(
       matching.map(async (hook) => {
+        // SSRF guard: only allow HTTPS webhook URLs. Non-https URLs
+        // (http:, file:, etc.) are skipped and the hook is marked failed.
+        let hookUrl: URL
+        try {
+          hookUrl = new URL(hook.url)
+          if (hookUrl.protocol !== 'https:') {
+            await db.webhook.update({
+              where: { id: hook.id },
+              data: { lastTriggeredAt: new Date(), lastResponseStatus: 0 },
+            })
+            return
+          }
+        } catch {
+          await db.webhook.update({
+            where: { id: hook.id },
+            data: { lastTriggeredAt: new Date(), lastResponseStatus: 0 },
+          })
+          return
+        }
+
         const body = JSON.stringify({
           event,
           clubId,
@@ -384,7 +359,7 @@ export async function emitWebhook(
         }
 
         try {
-          const res = await fetch(hook.url, {
+          const res = await fetch(hookUrl.toString(), {
             method: 'POST',
             headers,
             body,
@@ -449,13 +424,13 @@ export async function pushNotification(opts: NotificationPayload): Promise<void>
         select: { email: true, name: true },
       })
       if (user) {
+        const safeBody = escapeHtml(opts.body || '')
+        const safeLink = opts.link && /^https?:\/\//.test(opts.link) ? opts.link : null
         await enqueueEmail({
           toEmail: user.email,
           toName: user.name,
           subject: opts.title,
-          body: `<div style="font-family:sans-serif"><p>${opts.body}</p>${
-            opts.link ? `<p><a href="${opts.link}">Open in Roster →</a></p>` : ''
-          }</p></div>`,
+          body: `<div style="font-family:sans-serif"><p>${safeBody}</p>${safeLink ? `<p><a href="${safeLink}">Open in Roster →</a></p>` : ''}</div>`,
           clubId: opts.clubId,
           mergeData: { name: user.name, ...(opts.metadata || {}) },
         })

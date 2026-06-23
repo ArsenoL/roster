@@ -53,6 +53,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
+  // Whitelist allowed roles — without this, a members:write caller could
+  // escalate to PRESIDENT or any other high-privilege role on the membership
+  // they create via the invite.
+  const OFFICER_ROLES = ['PRESIDENT', 'VICE_PRESIDENT', 'TREASURER', 'SECRETARY', 'COMMITTEE_HEAD', 'MEMBER', 'PROBATIONARY']
+  const safeRole = role || 'MEMBER'
+  if (!OFFICER_ROLES.includes(safeRole)) {
+    return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
+  }
+
   const club = await db.club.findUnique({ where: { id: clubId } })
   if (!club) return NextResponse.json({ error: 'Club not found' }, { status: 404 })
 
@@ -64,7 +73,7 @@ export async function POST(req: NextRequest) {
       data: {
         clubId,
         email: email.toLowerCase().trim(),
-        role: role || 'MEMBER',
+        role: safeRole,
         token,
         invitedBy: user.id,
         expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7),  // 7 days
@@ -92,7 +101,7 @@ export async function POST(req: NextRequest) {
   }
 
   await db.auditLog.create({
-    data: { action: 'create', entity: 'ClubInvite', clubId, userId: user.id, after: JSON.stringify({ count: created.length, role }) }
+    data: { action: 'create', entity: 'ClubInvite', clubId, userId: user.id, after: JSON.stringify({ count: created.length, role: safeRole }) }
   })
 
   return NextResponse.json({ invites: created, count: created.length })

@@ -139,7 +139,7 @@ function WebhooksPanel({ clubId }: { clubId: string }) {
  {w.isActive ? 'Active' : 'Paused'}
  </Badge>
  {w.lastResponseStatus && (
- <Badge variant="outline" className={w.lastResponseStatus >= 200 && w.lastResponseStatus < 300 ? 'text-foreground' : 'text-foreground'}>
+ <Badge variant="outline" className={w.lastResponseStatus >= 200 && w.lastResponseStatus < 300 ? 'bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300' : 'bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-300'}>
  HTTP {w.lastResponseStatus}
  </Badge>
  )}

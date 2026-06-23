@@ -3,6 +3,12 @@ import { db } from '@/lib/db'
 import { verifyModule } from '@/lib/clubhub/module-gate'
 import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
 
+const VALID_REMINDER_TYPES = ['PRE_EVENT', 'DAY_OF', 'POST_EVENT_ABSENCE'] as const
+
+function isValidReminderType(t: unknown): boolean {
+  return typeof t === 'string' && (VALID_REMINDER_TYPES as readonly string[]).includes(t)
+}
+
 /**
  * GET /api/attendance-reminders?clubId=...&eventId=...&userId=...&unsent=true
  * Non-admins can only query their own reminders.
@@ -86,6 +92,12 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     )
   }
+  if (!isValidReminderType(reminderType)) {
+    return NextResponse.json(
+      { error: `Invalid reminderType (must be one of ${VALID_REMINDER_TYPES.join(', ')})` },
+      { status: 400 }
+    )
+  }
 
   // Verify the caller has attendance:write on the event's club (officer
   // action — creating reminders for members).
@@ -112,6 +124,12 @@ async function createBulkReminders(body: any, user: any) {
   const { eventId, reminderType, channel, offsetMinutes } = body
   if (!eventId || !reminderType) {
     return NextResponse.json({ error: 'eventId and reminderType required' }, { status: 400 })
+  }
+  if (!isValidReminderType(reminderType)) {
+    return NextResponse.json(
+      { error: `Invalid reminderType (must be one of ${VALID_REMINDER_TYPES.join(', ')})` },
+      { status: 400 }
+    )
   }
 
   const event = await db.event.findUnique({

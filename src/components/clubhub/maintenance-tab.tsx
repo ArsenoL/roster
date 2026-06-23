@@ -79,7 +79,7 @@ export function MaintenanceTab({ clubId }: { clubId: string }) {
  <div className="flex items-center gap-2 flex-wrap">
  <h3 className="font-semibold">{l.item?.name || 'Unknown item'}</h3>
  <Badge variant="outline" className="text-[10px]">{l.type}</Badge>
- <Badge variant="outline" className={l.status === 'COMPLETED' ? 'text-foreground text-[10px]' : l.status === 'IN_PROGRESS' ? 'text-foreground text-[10px]' : 'text-foreground text-[10px]'}>
+ <Badge variant="outline" className={l.status === 'COMPLETED' ? 'bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 text-[10px]' : l.status === 'IN_PROGRESS' ? 'bg-blue-100 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 text-[10px]' : 'bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 text-[10px]'}>
  {l.status.replace('_', ' ')}
  </Badge>
  </div>

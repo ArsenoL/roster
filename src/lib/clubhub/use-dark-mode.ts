@@ -43,19 +43,43 @@ export function useDarkMode() {
     return () => window.removeEventListener('storage', handler)
   }, [])
 
-  const toggle = () => {
-    setDark((prev) => {
-      const next = !prev
+  const applyDark = (next: boolean) => {
+    if (typeof document !== 'undefined') {
       if (next) {
         document.documentElement.classList.add('dark')
-        localStorage.setItem('roster.theme', 'dark')
       } else {
         document.documentElement.classList.remove('dark')
-        localStorage.setItem('roster.theme', 'light')
       }
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem('theme', next ? 'dark' : 'light')
+        // Also keep the legacy key in sync — older code paths read this one.
+        window.localStorage.setItem('roster.theme', next ? 'dark' : 'light')
+      } catch { /* ignore quota / privacy-mode errors */ }
+    }
+  }
+
+  // Wrapped setter: callers can use setDark(true|false) directly and the DOM
+  // + localStorage will stay in sync. The original `setDark` from useState
+  // only updated React state — leaving <html class="dark"> and localStorage
+  // stale, so refreshing the page or reading from non-React code showed the
+  // wrong mode.
+  const setDarkSynced = (next: boolean) => {
+    setDark((prev) => {
+      if (prev === next) return prev
+      applyDark(next)
       return next
     })
   }
 
-  return { dark, toggle, setDark }
+  const toggle = () => {
+    setDark((prev) => {
+      const next = !prev
+      applyDark(next)
+      return next
+    })
+  }
+
+  return { dark, toggle, setDark: setDarkSynced }
 }

@@ -4,12 +4,19 @@ import { emitWebhook } from '@/lib/clubhub/dispatchers'
 
 /**
  * POST /api/invites/accept
- * Body: { token, name?, grade?, studentId?, phone? }
+ * Body: { token, name? }
  * Accepts an invite — creates or finds user + creates membership.
+ *
+ * Security note: the invite-accept flow is unauthenticated (the caller only
+ * has the invite token). Profile fields like grade/studentId/phone used to
+ * be pulled from the body and persisted on the User — that let anyone with
+ * a token write arbitrary PII into an existing user's profile. Now we only
+ * set `name` (and only for brand-new users), and we never mutate an
+ * existing user's profile fields here.
  */
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { token, name, grade, studentId, phone } = body
+  const { token, name } = body
   if (!token) return NextResponse.json({ error: 'Token required' }, { status: 400 })
 
   const invite = await db.clubInvite.findUnique({
@@ -22,29 +29,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invite expired' }, { status: 400 })
   }
 
-  // Find or create user
+  // Find or create user. If the user already exists, do NOT mutate their
+  // profile — the caller is unauthenticated and could otherwise overwrite
+  // existing PII. Just create the membership.
   let user = await db.user.findUnique({ where: { email: invite.email } })
   if (!user) {
     user = await db.user.create({
       data: {
         email: invite.email,
         name: name || invite.email.split('@')[0],
-        grade: grade ? parseInt(grade) : null,
-        studentId: studentId || null,
-        phone: phone || null,
         role: 'STUDENT',
       }
     })
-  } else if (name || grade || studentId || phone) {
-    // Update missing fields only
-    const update: any = {}
-    if (!user.name && name) update.name = name
-    if (!user.grade && grade) update.grade = parseInt(grade)
-    if (!user.studentId && studentId) update.studentId = studentId
-    if (!user.phone && phone) update.phone = phone
-    if (Object.keys(update).length) {
-      user = await db.user.update({ where: { id: user.id }, data: update })
-    }
   }
 
   // Create membership (idempotent)

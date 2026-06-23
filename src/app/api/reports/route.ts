@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyModule } from '@/lib/clubhub/module-gate'
 import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
+import { isClubMember } from '@/lib/clubhub/sanitize'
 
 // GET /api/reports?type=attendance|service-letter|member-directory|finance|roster&clubId=...
 export async function GET(req: NextRequest) {
@@ -30,6 +31,14 @@ export async function GET(req: NextRequest) {
     }
   } else if (!hasPermission(user, 'club:read', clubId)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  // For PII-scoped report types (service-letter, member-summary), verify the
+  // target userId is actually an active member of this club — otherwise a
+  // caller could pass an arbitrary userId and read another club's member PII.
+  if ((type === 'service-letter' || type === 'member-summary') && userId && userId !== user.id) {
+    const ok = await isClubMember(userId, clubId)
+    if (!ok) return NextResponse.json({ error: 'Forbidden — user is not a member of this club' }, { status: 403 })
   }
 
   const club = await db.club.findUnique({

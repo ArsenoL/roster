@@ -92,12 +92,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
+  // Validate hours — finite, positive, < 1000 (defends against NaN, negative,
+  // and absurd values that would skew per-member aggregates).
+  const hoursValue = typeof body.hours === 'number' ? body.hours : parseFloat(body.hours)
+  if (!Number.isFinite(hoursValue) || hoursValue <= 0 || hoursValue >= 1000) {
+    return NextResponse.json({ error: 'Invalid hours value' }, { status: 400 })
+  }
+
   const h = await db.volunteerHours.create({
     data: {
       clubId: body.clubId,
       userId: targetUserId,
       eventId: body.eventId || null,
-      hours: parseFloat(body.hours),
+      hours: hoursValue,
       date: new Date(body.date),
       description: body.description,
       organization: body.organization || null,

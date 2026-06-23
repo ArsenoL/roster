@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
+import { isSafeUrl } from '@/lib/clubhub/sanitize'
 
 /**
  * POST /api/photo-albums/[id]/photos
@@ -31,6 +32,17 @@ export async function POST(
   const urls: string[] = Array.isArray(body.urls) ? body.urls : body.url ? [body.url] : []
   if (urls.length === 0) {
     return NextResponse.json({ error: 'url or urls required' }, { status: 400 })
+  }
+  // Cap bulk-add to 50 URLs so a caller can't fan out thousands of writes.
+  if (urls.length > 50) {
+    return NextResponse.json({ error: 'Too many urls (max 50)' }, { status: 400 })
+  }
+  // Validate every URL — defends against javascript:, data:, and other
+  // non-http(s) schemes that would be rendered in <img src> on the client.
+  for (const u of urls) {
+    if (!isSafeUrl(u)) {
+      return NextResponse.json({ error: 'Invalid url' }, { status: 400 })
+    }
   }
 
   const created = await db.$transaction(
@@ -100,6 +112,8 @@ export async function DELETE(
   const photoId = url.searchParams.get('id')
   if (!photoId) return NextResponse.json({ error: 'id required' }, { status: 400 })
 
-  await db.photo.delete({ where: { id: photoId } })
+  // Scope the delete with albumId so a caller can't delete a photo from a
+  // different album (cross-album IDOR) by passing its id alone.
+  await db.photo.deleteMany({ where: { id: photoId, albumId } })
   return NextResponse.json({ ok: true })
 }

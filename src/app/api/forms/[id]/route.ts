@@ -72,12 +72,31 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
   if (form.status !== 'OPEN') return NextResponse.json({ error: 'Form closed' }, { status: 400 })
 
+  // Enforce deadline if set — `status === OPEN` alone doesn't guarantee the
+  // window hasn't passed (officers can forget to flip the status).
+  if (form.deadline && new Date() > form.deadline) {
+    return NextResponse.json({ error: 'form closed' }, { status: 400 })
+  }
+
+  // Enforce allowMultipleResponses — without this check, a member could
+  // submit unlimited responses and skew survey results.
+  if (!form.allowMultipleResponses) {
+    const existing = await db.formResponse.findFirst({
+      where: { formId: id, userId: user.id },
+      select: { id: true },
+    })
+    if (existing) {
+      return NextResponse.json({ error: 'You have already responded to this form' }, { status: 409 })
+    }
+  }
+
   const body = await req.json()
 
   const response = await db.formResponse.create({
     data: {
       formId: id,
-      userId: user.id,  // always the signed-in user — never trust body.userId
+      // Anonymous forms don't record the submitter — null out userId.
+      userId: form.isAnonymous ? null : user.id,
       data: JSON.stringify(body.responses || {}),
       ipAddress: req.headers.get('x-forwarded-for') || null,
     },

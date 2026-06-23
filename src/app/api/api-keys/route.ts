@@ -42,9 +42,35 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const clubId = body.clubId || null
 
-  // Minting an API key grants API access to a club — require club:write.
-  if (clubId && !hasPermission(user, 'club:write', clubId)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  function isAdmin(u: { role: string }): boolean {
+    return u.role === 'SUPER_ADMIN' || u.role === 'SCHOOL_ADMIN'
+  }
+
+  if (!clubId) {
+    if (!isAdmin(user)) {
+      return NextResponse.json({ error: 'Only administrators may create tenant-wide API keys.' }, { status: 403 })
+    }
+  } else {
+    if (!hasPermission(user, 'club:write', clubId)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+  }
+
+  const ALLOWED_SCOPES = new Set(['read', 'write', 'members:read', 'members:write', 'events:read', 'events:write', 'finance:read', 'finance:write', 'attendance:read', 'attendance:write', 'announcements:write'])
+  const requestedScopes = Array.isArray(body.scopes) && body.scopes.length > 0 ? body.scopes : ['read']
+  for (const s of requestedScopes) {
+    if (typeof s !== 'string' || !ALLOWED_SCOPES.has(s)) {
+      return NextResponse.json({ error: `Invalid scope: ${String(s)}` }, { status: 400 })
+    }
+  }
+
+  let expiresAt: Date | null = null
+  if (body.expiresAt) {
+    const d = new Date(body.expiresAt)
+    if (isNaN(d.getTime())) return NextResponse.json({ error: 'Invalid expiresAt' }, { status: 400 })
+    const ONE_YEAR = 365 * 24 * 60 * 60 * 1000
+    if (d.getTime() > Date.now() + ONE_YEAR) return NextResponse.json({ error: 'API key lifetime cannot exceed 1 year.' }, { status: 400 })
+    expiresAt = d
   }
 
   const { randomBytes, createHash } = await import('crypto')
@@ -58,9 +84,9 @@ export async function POST(req: NextRequest) {
       name: body.name,
       keyHash,
       prefix,
-      scopes: JSON.stringify(body.scopes || ['read']),
+      scopes: JSON.stringify(requestedScopes),
       createdBy: user.id,
-      expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+      expiresAt,
     },
   })
 

@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
       event: { select: { id: true, title: true, startTime: true, location: true } },
     },
     orderBy: { createdAt: 'desc' },
-    take: 100,
+    take: 200,
   })
   return NextResponse.json({ minutes })
 }

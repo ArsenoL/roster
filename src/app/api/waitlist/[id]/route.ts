@@ -23,20 +23,32 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
   await db.eventWaitlist.delete({ where: { id } })
 
-  // Auto-promote the next person in line
+  // Auto-promote the next person in line. The naive `findFirst` + `update`
+  // pair is a TOCTOU race — two concurrent DELETEs could both find the same
+  // next entry and both "promote" it. Wrap them in a transaction and use an
+  // atomic updateMany with `notifiedAt: null` filter as the claim gate. If
+  // the claim returns count 0 (someone else got there first), refetch the
+  // next entry and retry.
   if (entry.eventId) {
     const event = await db.event.findUnique({ where: { id: entry.eventId } })
     if (event) {
-      const next = await db.eventWaitlist.findFirst({
-        where: { eventId: entry.eventId, notifiedAt: null },
-        orderBy: { createdAt: 'asc' },
+      await db.$transaction(async (tx) => {
+        // Safety cap on retries — pathological case only.
+        for (let attempt = 0; attempt < 50; attempt++) {
+          const next = await tx.eventWaitlist.findFirst({
+            where: { eventId: entry.eventId, notifiedAt: null },
+            orderBy: { createdAt: 'asc' },
+          })
+          if (!next) break
+          const claimed = await tx.eventWaitlist.updateMany({
+            where: { id: next.id, notifiedAt: null },
+            data: { notifiedAt: new Date(), promotedAt: new Date() },
+          })
+          if (claimed.count > 0) break
+          // count === 0 → another concurrent DELETE claimed `next` between
+          // our findFirst and our updateMany. Loop and refetch.
+        }
       })
-      if (next) {
-        await db.eventWaitlist.update({
-          where: { id: next.id },
-          data: { notifiedAt: new Date(), promotedAt: new Date() },
-        })
-      }
     }
   }
 

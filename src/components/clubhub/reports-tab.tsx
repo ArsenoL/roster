@@ -52,7 +52,7 @@ export function ReportsTab({ clubId }: { clubId: string }) {
  const Icon = rt.icon
  const needsMember = rt.value === 'service-letter' || rt.value === 'member-summary'
  return (
- <Card key={rt.value} className="hover: transition-shadow">
+ <Card key={rt.value} className="hover:transition-shadow">
  <CardHeader>
  <div className="flex items-start justify-between">
  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${rt.color}`}><Icon className="h-5 w-5" /></div>

@@ -9,6 +9,24 @@ import {
   validatePassword,
 } from '@/lib/clubhub/auth'
 
+// Per-IP rate limiter — 5 signups per hour. Prevents automated
+// account creation / email abuse from a single source IP.
+const signupAttempts = new Map<string, { count: number; firstAt: number }>()
+const SIGNUP_WINDOW_MS = 60 * 60 * 1000
+const SIGNUP_MAX_ATTEMPTS = 5
+
+function checkSignupRate(ip: string): boolean {
+  const now = Date.now()
+  const entry = signupAttempts.get(ip)
+  if (!entry || (now - entry.firstAt) > SIGNUP_WINDOW_MS) {
+    signupAttempts.set(ip, { count: 1, firstAt: now })
+    return true
+  }
+  entry.count += 1
+  if (entry.count > SIGNUP_MAX_ATTEMPTS) return false
+  return true
+}
+
 /**
  * POST /api/auth/signup
  * Body: { name, email, password }
@@ -25,6 +43,11 @@ import {
  * be promoted by an admin after they join a club.
  */
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+  if (!checkSignupRate(ip)) {
+    return NextResponse.json({ error: 'Too many sign-up attempts. Please try again later.' }, { status: 429 })
+  }
+
   let body: any
   try {
     body = await req.json()

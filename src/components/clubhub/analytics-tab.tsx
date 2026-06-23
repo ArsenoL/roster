@@ -50,15 +50,22 @@ export function AnalyticsTab({ clubId }: { clubId: string }) {
 
  // Export
  const exportAnalytics = () => {
+ // RFC 4180 CSV escaping: wrap any field containing comma/quote/newline in
+ // double quotes and double any embedded quotes.
+ const esc = (v: unknown) => {
+ const s = String(v ?? '')
+ if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'
+ return s
+ }
  const csv = [
- 'Metric,Value',
- `Total Members,${engagement?.total || 0}`,
- `At-Risk Members,${engagement?.atRiskCount || 0}`,
- `Avg Engagement,${engagement?.avgEngagement || 0}`,
- `Total Clubs,${clubsData.length}`,
- ``,
- `Club,Active Members,Events,Attendance Rate,Badges`,
- ...clubsData.map((c: any) => `${c.name},${c.activeMembers},${c.totalEvents},${c.attendanceRate}%,${c.badgesAwarded}`)
+ ['Metric', 'Value'].map(esc).join(','),
+ ['Total Members', engagement?.total || 0].map(esc).join(','),
+ ['At-Risk Members', engagement?.atRiskCount || 0].map(esc).join(','),
+ ['Avg Engagement', engagement?.avgEngagement || 0].map(esc).join(','),
+ ['Total Clubs', clubsData.length].map(esc).join(','),
+ '',
+ ['Club', 'Active Members', 'Events', 'Attendance Rate', 'Badges'].map(esc).join(','),
+ ...clubsData.map((c: any) => [c.name, c.activeMembers, c.totalEvents, `${c.attendanceRate}%`, c.badgesAwarded].map(esc).join(',')),
  ].join('\n')
  const blob = new Blob([csv], { type: 'text/csv' })
  const url = URL.createObjectURL(blob)
@@ -66,6 +73,8 @@ export function AnalyticsTab({ clubId }: { clubId: string }) {
  a.href = url
  a.download = `analytics_${new Date().toISOString().slice(0, 10)}.csv`
  a.click()
+ // Revoke the object URL on the next tick so the download has time to start.
+ setTimeout(() => URL.revokeObjectURL(url), 0)
  }
 
  return (
@@ -508,7 +517,7 @@ function StatRow({ label, value, trend }: { label: string, value: string, trend?
  <span className="text-sm text-muted-foreground">{label}</span>
  <div className="flex items-center gap-2">
  {trend !== undefined && (
- <span className={`text-xs flex items-center gap-0.5 ${trend > 0 ? 'text-foreground' : trend < 0 ? 'text-foreground' : 'text-muted-foreground'}`}>
+ <span className={`text-xs flex items-center gap-0.5 ${trend > 0 ? 'text-emerald-600 dark:text-emerald-400' : trend < 0 ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'}`}>
  {trend > 0 ? <TrendingUp className="h-3 w-3" /> : trend < 0 ? <TrendingDown className="h-3 w-3" /> : null}
  {trend > 0 ? '+' : ''}{trend.toFixed(1)}%
  </span>

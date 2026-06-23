@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useMemo } from 'react'
-import { useFetch, apiPost, apiDelete } from '@/lib/clubhub/hooks'
+import { useState, useMemo, useEffect } from 'react'
+import { useFetch, apiPost, apiPatch, apiDelete } from '@/lib/clubhub/hooks'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -34,6 +34,14 @@ export function MembersTab({ clubId }: { clubId: string }) {
  const [selected, setSelected] = useState<Set<string>>(new Set())
  const [addOpen, setAddOpen] = useState(false)
  const [importOpen, setImportOpen] = useState(false)
+ const [bulkSubmitting, setBulkSubmitting] = useState(false)
+
+ // Reset selection + pagination when the club changes — otherwise stale
+ // selections from club A get applied to club B's members.
+ useEffect(() => {
+ setSelected(new Set())
+ setPage(0)
+ }, [clubId])
 
  const url = useMemo(() => `/api/members?clubId=${clubId}&search=${encodeURIComponent(search)}&role=${roleFilter}&grade=${gradeFilter}&status=${statusFilter}&limit=${pageSize}&offset=${page * pageSize}`, [clubId, search, roleFilter, gradeFilter, statusFilter, pageSize, page])
  const { data, loading, refetch } = useFetch<{ members: Member[], total: number }>(clubId === 'ALL' ? null : url)
@@ -64,20 +72,21 @@ export function MembersTab({ clubId }: { clubId: string }) {
 
  const handleBulkRoleChange = async (role: string) => {
  if (selected.size === 0) return
- for (const id of selected) {
+ setBulkSubmitting(true)
  try {
- await fetch(`/api/members/${id}`, {
- method: 'PATCH',
- headers: { 'Content-Type': 'application/json' },
- body: JSON.stringify({ role })
- })
- } catch (e) {
- // ignore — endpoint may not exist
- }
- }
- toast.success(`Updated ${selected.size} members to ${role}`)
+ const results = await Promise.allSettled(
+ Array.from(selected).map(id => apiPatch(`/api/members/${id}`, { role }))
+ )
+ const succeeded = results.filter(r => r.status === 'fulfilled').length
+ const failed = results.length - succeeded
+ if (failed === 0) toast.success(`Updated ${succeeded} members to ${role}`)
+ else if (succeeded === 0) toast.error(`Failed to update all ${failed} members`)
+ else toast.warning(`Updated ${succeeded}, failed ${failed}`)
  setSelected(new Set())
  refetch()
+ } finally {
+ setBulkSubmitting(false)
+ }
  }
 
  if (clubId === 'ALL') {
@@ -149,7 +158,7 @@ export function MembersTab({ clubId }: { clubId: string }) {
  <div className="flex gap-2">
  <DropdownMenu>
  <DropdownMenuTrigger asChild>
- <Button variant="outline" size="sm">
+ <Button variant="outline" size="sm" disabled={bulkSubmitting}>
  <Filter className="h-3.5 w-3.5" /> Change Role
  </Button>
  </DropdownMenuTrigger>
@@ -157,7 +166,7 @@ export function MembersTab({ clubId }: { clubId: string }) {
  <DropdownMenuLabel>Set role to...</DropdownMenuLabel>
  <DropdownMenuSeparator />
  {MEMBERSHIP_ROLES.map(r => (
- <DropdownMenuItem key={r.value} onClick={() => handleBulkRoleChange(r.value)}>
+ <DropdownMenuItem key={r.value} onClick={() => handleBulkRoleChange(r.value)} disabled={bulkSubmitting}>
  {r.label}
  </DropdownMenuItem>
  ))}
@@ -449,11 +458,33 @@ function ImportCsvDialog({ open, onOpenChange, clubId, onImported }: {
  const [result, setResult] = useState<any>(null)
 
  const parseCsv = (text: string): any[] => {
+ // RFC 4180–aware parser: handles quoted fields, escaped quotes, and
+ // commas embedded inside quoted values. The previous `line.split(',')`
+ // mangled any row containing a comma (e.g. "Lee, Dana").
+ const parseCSVLine = (line: string): string[] => {
+ const out: string[] = []
+ let cur = ''
+ let inQuotes = false
+ for (let i = 0; i < line.length; i++) {
+ const c = line[i]
+ if (inQuotes) {
+ if (c === '"' && line[i + 1] === '"') { cur += '"'; i++ }
+ else if (c === '"') { inQuotes = false }
+ else { cur += c }
+ } else {
+ if (c === '"') { inQuotes = true }
+ else if (c === ',') { out.push(cur); cur = '' }
+ else { cur += c }
+ }
+ }
+ out.push(cur)
+ return out
+ }
  const lines = text.trim().split(/\r?\n/)
  if (lines.length < 2) return []
- const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/"/g, ''))
+ const headers = parseCSVLine(lines[0]).map(h => h.trim().toLowerCase())
  return lines.slice(1).map(line => {
- const values = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''))
+ const values = parseCSVLine(line).map(v => v.trim())
  const obj: any = {}
  headers.forEach((h, i) => { obj[h] = values[i] })
  return obj

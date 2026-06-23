@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
+import { isClubMember } from '@/lib/clubhub/sanitize'
 
 export async function GET(req: NextRequest) {
   const user = await getCurrentUser()
@@ -74,6 +75,16 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   if (!body.clubId || !hasPermission(user, 'club:write', body.clubId)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  // If an assignee is provided, verify they're an active member of the
+  // target club — otherwise a club:write caller could assign tasks to users
+  // in other clubs (cross-tenant task assignment + notification spam).
+  if (body.assigneeId) {
+    const ok = await isClubMember(body.assigneeId, body.clubId)
+    if (!ok) {
+      return NextResponse.json({ error: 'Assignee is not a member of this club' }, { status: 400 })
+    }
   }
 
   const task = await db.task.create({

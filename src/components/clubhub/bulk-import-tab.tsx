@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { apiPost } from '@/lib/clubhub/hooks'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -52,11 +53,32 @@ export function BulkImportTab({ clubId }: { clubId: string }) {
  }
 
  function parseCsv(text: string): any[] {
+ // RFC 4180–aware parser: handles quoted fields, escaped quotes, and
+ // commas embedded inside quoted values.
+ const parseCSVLine = (line: string): string[] => {
+ const out: string[] = []
+ let cur = ''
+ let inQuotes = false
+ for (let i = 0; i < line.length; i++) {
+ const c = line[i]
+ if (inQuotes) {
+ if (c === '"' && line[i + 1] === '"') { cur += '"'; i++ }
+ else if (c === '"') { inQuotes = false }
+ else { cur += c }
+ } else {
+ if (c === '"') { inQuotes = true }
+ else if (c === ',') { out.push(cur); cur = '' }
+ else { cur += c }
+ }
+ }
+ out.push(cur)
+ return out
+ }
  const lines = text.trim().split(/\r?\n/)
  if (lines.length < 2) return []
- const headers = lines[0].split(',').map((h) => h.trim())
+ const headers = parseCSVLine(lines[0]).map((h) => h.trim())
  return lines.slice(1).map((line) => {
- const values = line.split(',').map((v) => v.trim())
+ const values = parseCSVLine(line).map((v) => v.trim())
  const row: any = {}
  headers.forEach((h, i) => { row[h] = values[i] || '' })
  return row
@@ -69,20 +91,12 @@ export function BulkImportTab({ clubId }: { clubId: string }) {
  try {
  const rows = parseCsv(csv)
  if (rows.length === 0) { toast.error('No rows to import'); setLoading(false); return }
- const res = await fetch('/api/bulk-import', {
- method: 'POST',
- headers: { 'Content-Type': 'application/json' },
- body: JSON.stringify({ clubId, type: activeType, rows }),
- })
- const data = await res.json()
- if (res.ok) {
+ const data = await apiPost('/api/bulk-import', { clubId, type: activeType, rows })
  setResult(data)
  toast.success(`Imported ${data.created} ${activeType}, ${data.existing} existing, ${data.errors} errors`)
- } else {
- toast.error(data.error || 'Import failed')
- }
- } catch (e: any) { toast.error(e.message) }
+ } catch (e: any) { if (!e?.silent) toast.error(e.message) } finally {
  setLoading(false)
+ }
  }
 
  return (
@@ -150,15 +164,15 @@ export function BulkImportTab({ clubId }: { clubId: string }) {
  <h3 className="font-semibold">Import complete</h3>
  </div>
  <div className="grid grid-cols-3 gap-3 mb-3">
- <div className="bg-foreground dark:bg-emerald-950/30 p-3 rounded text-center">
+ <div className="bg-emerald-100 dark:bg-emerald-950/30 p-3 rounded text-center">
  <div className="text-2xl font-bold text-foreground">{result.created}</div>
  <div className="text-xs text-muted-foreground uppercase">Created</div>
  </div>
- <div className="bg-foreground dark:bg-blue-950/30 p-3 rounded text-center">
+ <div className="bg-blue-100 dark:bg-blue-950/30 p-3 rounded text-center">
  <div className="text-2xl font-bold text-foreground">{result.existing}</div>
  <div className="text-xs text-muted-foreground uppercase">Existing</div>
  </div>
- <div className="bg-foreground dark:bg-red-950/30 p-3 rounded text-center">
+ <div className="bg-red-100 dark:bg-red-950/30 p-3 rounded text-center">
  <div className="text-2xl font-bold text-foreground">{result.errors}</div>
  <div className="text-xs text-muted-foreground uppercase">Errors</div>
  </div>

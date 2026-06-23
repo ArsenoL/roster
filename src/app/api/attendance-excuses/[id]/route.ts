@@ -92,8 +92,18 @@ export async function DELETE(
   })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  // Submitter can delete their own pending excuse; officers can delete any.
-  if (existing.userId !== user.id && !hasPermission(user, 'members:write', existing.event.clubId)) {
+  // Submitter can delete their own PENDING excuse. Once an officer has
+  // reviewed the excuse (APPROVED/REJECTED), the submitter can no longer
+  // delete it — only someone with attendance:write (an officer) can.
+  // This prevents a student from deleting an approved excuse to "undo" the
+  // approved EXCUSED attendance status, or from deleting a denied excuse to
+  // hide a rejected review.
+  const isSubmitter = existing.userId === user.id
+  if (isSubmitter && existing.status === 'PENDING') {
+    // allow
+  } else if (hasPermission(user, 'attendance:write', existing.event.clubId)) {
+    // allow
+  } else {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 

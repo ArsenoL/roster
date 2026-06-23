@@ -2,11 +2,30 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import {
   generateSessionToken,
+  hashPassword,
   setSessionCookie,
   shapeAuthUser,
   validateEmail,
   verifyPassword,
 } from '@/lib/clubhub/auth'
+
+// Per-IP rate limiter — 20 login attempts per 15 minutes.
+// Prevents brute-force password guessing from a single source IP.
+const loginAttempts = new Map<string, { count: number; firstAt: number }>()
+const LOGIN_WINDOW_MS = 15 * 60 * 1000
+const LOGIN_MAX_ATTEMPTS = 20
+
+function checkLoginRate(ip: string): boolean {
+  const now = Date.now()
+  const entry = loginAttempts.get(ip)
+  if (!entry || (now - entry.firstAt) > LOGIN_WINDOW_MS) {
+    loginAttempts.set(ip, { count: 1, firstAt: now })
+    return true
+  }
+  entry.count += 1
+  if (entry.count > LOGIN_MAX_ATTEMPTS) return false
+  return true
+}
 
 /**
  * POST /api/auth/login
@@ -24,6 +43,11 @@ import {
  *    alive (multi-device login), we just add a new one.
  */
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+  if (!checkLoginRate(ip)) {
+    return NextResponse.json({ error: 'Too many login attempts. Please try again later.' }, { status: 429 })
+  }
+
   let body: any
   try {
     body = await req.json()
@@ -45,15 +69,18 @@ export async function POST(req: NextRequest) {
   const user = await db.user.findUnique({ where: { email } })
 
   // Always run verifyPassword with something to keep timing roughly constant
-  // — if the user doesn't exist, verify against a dummy hash so the cost
-  // of a missing-user request matches the cost of a bad-password request.
-  const DUMMY_HASH =
-    'scrypt$00000000000000000000000000000000$' +
-    '00'.repeat(64)
-  const ok = await verifyPassword(
-    password,
-    user?.passwordHash ?? DUMMY_HASH
-  )
+  // — if the user doesn't exist, hash this request's password and verify
+  // against that freshly-computed hash so the per-request work matches the
+  // real-login path (a static DUMMY_HASH is unsafe — verifyPassword returns
+  // false fast for hashes whose keylen != SCRYPT_KEYLEN).
+  let ok = false
+  if (user?.passwordHash) {
+    ok = await verifyPassword(password, user.passwordHash)
+  } else {
+    const dummyHash = await hashPassword(password)
+    await verifyPassword(password, dummyHash) // run for timing cost
+    ok = false
+  }
 
   if (!user || !ok) {
     return NextResponse.json(

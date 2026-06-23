@@ -93,7 +93,7 @@ function TaskCard({ task, onChanged }: any) {
  onChanged()
  }
  return (
- <div className="bg-background rounded-md border p-2.5 hover: transition-shadow">
+ <div className="bg-background rounded-md border p-2.5 hover:transition-shadow">
  <div className="flex items-start justify-between gap-1 mb-1">
  <div className="text-sm font-medium leading-tight">{task.title}</div>
  <div className="w-2 h-2 rounded-full shrink-0 mt-1" style={{ backgroundColor: taskPriorityColor(task.priority) }} />

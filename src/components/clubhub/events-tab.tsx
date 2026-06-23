@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { useFetch, apiPost, apiDelete } from '@/lib/clubhub/hooks'
+import { useFetch, apiPost, apiPut, apiDelete } from '@/lib/clubhub/hooks'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -101,17 +101,12 @@ function EventCard({ event, onDeleted, showClub = false }: { event: ClubEvent, o
 
  async function generateKioskCode() {
  try {
- const res = await fetch('/api/kiosk', {
- method: 'PUT',
- headers: { 'Content-Type': 'application/json' },
- body: JSON.stringify({ eventId: event.id }),
- })
- const d = await res.json()
+ const d = await apiPut('/api/kiosk', { eventId: event.id })
  if (d.code) {
  toast.success(`Kiosk code: ${d.code}`)
  onDeleted() // refetch
  }
- } catch (e: any) { toast.error(e.message) }
+ } catch (e: any) { if (!e?.silent) toast.error(e.message) }
  }
 
  async function openKiosk() {
@@ -123,7 +118,7 @@ function EventCard({ event, onDeleted, showClub = false }: { event: ClubEvent, o
  }
 
  return (
- <Card className="hover: transition-shadow">
+ <Card className="hover:transition-shadow">
  <CardContent className="p-4">
  <div className="flex items-start gap-4">
  <div

@@ -59,9 +59,17 @@ export function AuditTab({ clubId }: { clubId: string }) {
  }
 
  const exportLogs = () => {
+ // RFC 4180 CSV escaping: wrap any field containing comma/quote/newline in
+ // double quotes and double any embedded quotes. The previous version just
+ // concatenated fields with commas — so a name like "Lee, Dana" broke the row.
+ const esc = (v: unknown) => {
+ const s = String(v ?? '')
+ if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'
+ return s
+ }
  const csv = [
- 'Timestamp,User,Action,Entity,EntityId,ClubId',
- ...logs.map(l => `${l.timestamp},${l.user?.name || 'System'},${l.action},${l.entity},${l.entityId || ''},${l.clubId || ''}`)
+ ['Timestamp', 'User', 'Action', 'Entity', 'EntityId', 'ClubId'].map(esc).join(','),
+ ...logs.map(l => [l.timestamp, l.user?.name || 'System', l.action, l.entity, l.entityId || '', l.clubId || ''].map(esc).join(',')),
  ].join('\n')
  const blob = new Blob([csv], { type: 'text/csv' })
  const url = URL.createObjectURL(blob)
@@ -69,6 +77,8 @@ export function AuditTab({ clubId }: { clubId: string }) {
  a.href = url
  a.download = `audit_log_${new Date().toISOString().slice(0, 10)}.csv`
  a.click()
+ // Revoke the object URL on the next tick so the download has time to start.
+ setTimeout(() => URL.revokeObjectURL(url), 0)
  }
 
  return (
