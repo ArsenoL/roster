@@ -38,7 +38,9 @@ const prisma = new PrismaClient()
 const sqlite = new Database(SQLITE_PATH, { readonly: true })
 
 // Helper: parse a JSON string field safely (returns null if empty/invalid)
-function parseJson(val: unknown): unknown {
+// Returns `any` so the result can be assigned to Prisma's Json? fields
+// (InputJsonValue) without TS complaining — we trust JSON.parse output here.
+function parseJson(val: unknown): any {
   if (val === null || val === undefined || val === '') return null
   if (typeof val !== 'string') return val
   try { return JSON.parse(val) } catch { return null }

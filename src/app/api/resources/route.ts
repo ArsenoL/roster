@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
       maxBookingHours: body.maxBookingHours || 8,
       requiresApproval: body.requiresApproval || false,
       contactUserId: body.contactUserId || null,
-      tags: body.tags ? JSON.stringify(body.tags) : null,
+      tags: body.tags ?? null,
     },
   })
 

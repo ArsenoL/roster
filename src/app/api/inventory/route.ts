@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
 
   const summary = {
     totalItems: items.reduce((s, i) => s + i.quantity, 0),
-    totalValue: items.reduce((s, i) => s + (i.currentValue || i.purchasePrice || 0) * i.quantity, 0),
+    totalValue: items.reduce((s, i) => s + Number(i.currentValue || i.purchasePrice || 0) * i.quantity, 0),
     available: items.reduce((s, i) => s + i.quantityAvailable, 0),
     outOnLoan: items.reduce((s, i) => s + (i.quantity - i.quantityAvailable), 0),
     byCondition: items.reduce((acc, i) => {

@@ -101,8 +101,8 @@ export async function POST(req: NextRequest) {
       eventId: body.eventId || null,
       dueDate: body.dueDate ? new Date(body.dueDate) : null,
       estimatedMinutes: body.estimatedMinutes || null,
-      tags: body.tags ? JSON.stringify(body.tags) : null,
-      checklist: body.checklist ? JSON.stringify(body.checklist) : null,
+      tags: body.tags ?? null,
+      checklist: body.checklist ?? null,
     },
   })
 

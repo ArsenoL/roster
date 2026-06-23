@@ -62,7 +62,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       conversationId: id,
       senderId: user.id,  // always the signed-in user
       body: messageBody,
-      attachments: attachments ? JSON.stringify(attachments) : null,
+      attachments: attachments ?? null,
     },
     include: { sender: { select: { id: true, name: true, avatar: true } } },
   })

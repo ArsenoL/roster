@@ -546,8 +546,8 @@ async function main() {
         entity: a.entity,
         entityId: club.id,
         clubId: club.id,
-        before: a.action === 'update' ? JSON.stringify({ field: 'old value' }) : null,
-        after: a.action === 'update' ? JSON.stringify({ field: 'new value' }) : JSON.stringify({ note: a.note }),
+        before: a.action === 'update' ? ({ field: 'old value' } as any) : null,
+        after: a.action === 'update' ? ({ field: 'new value' } as any) : ({ note: a.note } as any),
         timestamp: new Date(Date.now() - randomInt(0, 60) * 86400000),
       }
     })

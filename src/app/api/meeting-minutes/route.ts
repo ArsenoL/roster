@@ -60,9 +60,9 @@ export async function POST(req: NextRequest) {
     eventId: body.eventId,
     clubId: body.clubId,
     content: body.content || '',
-    attendance: body.attendance ? JSON.stringify(body.attendance) : null,
-    decisions: body.decisions ? JSON.stringify(body.decisions) : null,
-    actionItems: body.actionItems ? JSON.stringify(body.actionItems) : null,
+    attendance: body.attendance ?? null,
+    decisions: body.decisions ?? null,
+    actionItems: body.actionItems ?? null,
     nextMeeting: body.nextMeeting || null,
     recordedById: user.id,  // always the signed-in user
   }

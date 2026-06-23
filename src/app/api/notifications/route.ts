@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
       link: body.link || null,
       priority: body.priority || 'normal',
       clubId: body.clubId || null,
-      metadata: body.metadata ? JSON.stringify(body.metadata) : null,
+      metadata: body.metadata ?? null,
     },
   })
   return NextResponse.json(n)

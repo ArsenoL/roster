@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
       location: body.location || null,
       linkedin: body.linkedin || null,
       mentorshipAvailable: body.mentorshipAvailable || false,
-      mentorshipAreas: body.mentorshipAreas ? JSON.stringify(body.mentorshipAreas) : null,
+      mentorshipAreas: body.mentorshipAreas ?? null,
       willingToDonate: body.willingToDonate || false,
       willingToSpeak: body.willingToSpeak || false,
       newsletter: body.newsletter ?? true,

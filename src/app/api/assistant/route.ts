@@ -276,15 +276,15 @@ async function buildClubDigest(clubId: string, question: string) {
       }),
       db.budget.findMany({ where: { clubId }, select: { name: true, allocated: true, spent: true } }),
     ])
-    const income = transactions.filter((t) => t.type === 'INCOME').reduce((s, t) => s + t.amount, 0)
-    const expenses = transactions.filter((t) => t.type === 'EXPENSE').reduce((s, t) => s + t.amount, 0)
+    const income = transactions.filter((t) => t.type === 'INCOME').reduce((s, t) => s + Number(t.amount), 0)
+    const expenses = transactions.filter((t) => t.type === 'EXPENSE').reduce((s, t) => s + Number(t.amount), 0)
     digest.finance = {
       last90Days: { income, expenses, net: income - expenses, transactionCount: transactions.length },
       budgets: budgets.map((b) => ({
         name: b.name,
         allocated: b.allocated,
         spent: b.spent,
-        percentUsed: b.allocated > 0 ? Math.round((b.spent / b.allocated) * 100) : 0,
+        percentUsed: Number(b.allocated) > 0 ? Math.round((Number(b.spent) / Number(b.allocated)) * 100) : 0,
       })),
     }
     sources.push({ label: 'Finance', value: `${transactions.length} txns (90d)` })

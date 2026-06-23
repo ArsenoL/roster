@@ -105,8 +105,8 @@ export async function GET(req: NextRequest) {
       include: { recordedBy: { select: { name: true } } },
       orderBy: { date: 'asc' },
     })
-    const income = transactions.filter(t => t.type === 'INCOME' || t.type === 'DUE_PAYMENT').reduce((s, t) => s + t.amount, 0)
-    const expenses = transactions.filter(t => t.type === 'EXPENSE').reduce((s, t) => s + t.amount, 0)
+    const income = transactions.filter(t => t.type === 'INCOME' || t.type === 'DUE_PAYMENT').reduce((s, t) => s + Number(t.amount), 0)
+    const expenses = transactions.filter(t => t.type === 'EXPENSE').reduce((s, t) => s + Number(t.amount), 0)
     return NextResponse.json({
       type, club, transactions,
       summary: { income, expenses, balance: income - expenses },

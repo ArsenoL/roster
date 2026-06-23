@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
         userId, clubId, type,
         reason: reason || null,
         effectiveDate: new Date(effectiveDate || Date.now()),
-        survey: survey ? JSON.stringify(survey) : null,
+        survey: survey ?? null,
         farewellMessage: farewellMessage || null,
         alumniInviteSent: false,
       }

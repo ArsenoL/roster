@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
       name: body.name,
       label: body.label,
       type: body.type,
-      options: body.options ? JSON.stringify(body.options) : null,
+      options: body.options ?? null,
       required: body.required || false,
       defaultValue: body.defaultValue || null,
       description: body.description || null,

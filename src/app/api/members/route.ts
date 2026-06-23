@@ -119,12 +119,12 @@ export async function POST(req: NextRequest) {
     create: {
       userId: targetUser.id, clubId: body.clubId,
       role: body.role || 'MEMBER',
-      customData: body.customData ? JSON.stringify(body.customData) : null,
+      customData: body.customData ?? null,
     },
     update: {
       role: body.role || 'MEMBER',
       status: 'ACTIVE',
-      customData: body.customData ? JSON.stringify(body.customData) : null,
+      customData: body.customData ?? null,
     },
   })
 

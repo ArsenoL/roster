@@ -599,7 +599,7 @@ async function main() {
           location: randomItem(['Boston, MA', 'San Francisco, CA', 'New York, NY', 'Seattle, WA', 'Austin, TX', 'Chicago, IL']),
           linkedin: `https://linkedin.com/in/${m.user.name.toLowerCase().replace(/\s+/g, '-')}`,
           mentorshipAvailable: Math.random() < 0.5,
-          mentorshipAreas: Math.random() < 0.5 ? JSON.stringify(['College Applications', 'Career Advice', 'Major Selection']) : null,
+          mentorshipAreas: Math.random() < 0.5 ? (['College Applications', 'Career Advice', 'Major Selection'] as any) : null,
           willingToDonate: Math.random() < 0.3,
           willingToSpeak: Math.random() < 0.4,
           newsletter: Math.random() < 0.7,

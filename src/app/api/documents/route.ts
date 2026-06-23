@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
       fileType: body.fileType || null,
       fileSize: body.fileSize || null,
       uploadedById: user.id,  // always the signed-in user
-      tags: body.tags ? JSON.stringify(body.tags) : null,
+      tags: body.tags ?? null,
       isPublic: body.isPublic || false,
     },
   })

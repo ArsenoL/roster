@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
       allowAnonymous: allowAnonymous ?? true,
       eventId: eventId || null,
       isOfficial: isOfficial ?? false,
-      eligibility: eligibility ? JSON.stringify(eligibility) : null,
+      eligibility: eligibility ?? null,
       options: {
         create: (options || []).map((o: any, i: number) => ({
           text: o.text,

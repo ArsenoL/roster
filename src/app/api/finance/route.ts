@@ -51,15 +51,15 @@ export async function GET(req: NextRequest) {
   ])
 
   // Summary
-  const income = transactions.filter(t => t.type === 'INCOME' || t.type === 'DUE_PAYMENT').reduce((s, t) => s + t.amount, 0)
-  const expenses = transactions.filter(t => t.type === 'EXPENSE').reduce((s, t) => s + t.amount, 0)
+  const income = transactions.filter(t => t.type === 'INCOME' || t.type === 'DUE_PAYMENT').reduce((s, t) => s + Number(t.amount), 0)
+  const expenses = transactions.filter(t => t.type === 'EXPENSE').reduce((s, t) => s + Number(t.amount), 0)
   const balance = income - expenses
-  const pendingDues = transactions.filter(t => t.type === 'DUE_PAYMENT' && t.status === 'PENDING').reduce((s, t) => s + t.amount, 0)
+  const pendingDues = transactions.filter(t => t.type === 'DUE_PAYMENT' && t.status === 'PENDING').reduce((s, t) => s + Number(t.amount), 0)
 
   // By category
   const byCategory: Record<string, number> = {}
   transactions.forEach(t => {
-    byCategory[t.category] = (byCategory[t.category] || 0) + (t.type === 'EXPENSE' ? t.amount : -t.amount)
+    byCategory[t.category] = (byCategory[t.category] || 0) + (t.type === 'EXPENSE' ? Number(t.amount) : -Number(t.amount))
   })
 
   // Monthly series
@@ -69,8 +69,8 @@ export async function GET(req: NextRequest) {
     const d = new Date(t.date)
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
     const cur = monthMap.get(key) || { income: 0, expense: 0 }
-    if (t.type === 'INCOME' || t.type === 'DUE_PAYMENT') cur.income += t.amount
-    else if (t.type === 'EXPENSE') cur.expense += t.amount
+    if (t.type === 'INCOME' || t.type === 'DUE_PAYMENT') cur.income += Number(t.amount)
+    else if (t.type === 'EXPENSE') cur.expense += Number(t.amount)
     monthMap.set(key, cur)
   })
   monthMap.forEach((v, k) => monthly.push({ month: k, ...v }))

@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
       color: body.color || '#f59e0b',
       tier: body.tier || 'BRONZE',
       points: body.points || 0,
-      criteria: body.criteria ? JSON.stringify(body.criteria) : null,
+      criteria: body.criteria ?? null,
     }
   })
   await db.auditLog.create({

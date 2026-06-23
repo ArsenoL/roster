@@ -29,12 +29,12 @@ export async function PUT(req: NextRequest) {
   }
 
   const code = generateShortCode()
-  const metadata = JSON.parse(event.metadata || '{}')
+  const metadata = (event.metadata as any) || {}
   metadata.kioskCode = code
   metadata.kioskCodeSetAt = new Date().toISOString()
   metadata.kioskCodeSetBy = user.id
 
-  await db.event.update({ where: { id: eventId }, data: { metadata: JSON.stringify(metadata) } })
+  await db.event.update({ where: { id: eventId }, data: { metadata: metadata as any } })
   return NextResponse.json({ code, eventId })
 }
 
@@ -44,15 +44,17 @@ export async function GET(req: NextRequest) {
   if (!code) return NextResponse.json({ error: 'code required' }, { status: 400 })
   if (!KIOSK_CODE_RE.test(code)) return NextResponse.json({ error: 'Invalid code' }, { status: 400 })
 
+  // Json fields don't support `contains` in Prisma; fetch a recent batch and
+  // filter in JS by the kioskCode property on the metadata object.
   const events = await db.event.findMany({
-    where: { metadata: { contains: `"kioskCode":"${code}"` } },
     include: { club: { select: { id: true, name: true, primaryColor: true } }, _count: { select: { attendances: true } } },
-    take: 5,
+    take: 200,
+    orderBy: { updatedAt: 'desc' },
   })
 
   const matching = events.filter((e) => {
-    try { return (JSON.parse(e.metadata || '{}').kioskCode || '').toUpperCase() === code }
-    catch { return false }
+    const meta = (e.metadata as any) || {}
+    return typeof meta.kioskCode === 'string' && meta.kioskCode.toUpperCase() === code
   })
 
   if (matching.length === 0) return NextResponse.json({ error: 'Invalid code' }, { status: 404 })
@@ -73,14 +75,16 @@ export async function POST(req: NextRequest) {
   if (!code || !email) return NextResponse.json({ error: 'code and email required' }, { status: 400 })
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return NextResponse.json({ error: 'Invalid email format' }, { status: 400 })
 
+  // Json fields don't support `contains` in Prisma; fetch a recent batch and
+  // filter in JS by the kioskCode property on the metadata object.
   const events = await db.event.findMany({
-    where: { metadata: { contains: `"kioskCode":"${code}"` } },
     include: { club: true },
-    take: 5,
+    take: 200,
+    orderBy: { updatedAt: 'desc' },
   })
   const event = events.find((e) => {
-    try { return (JSON.parse(e.metadata || '{}').kioskCode || '').toUpperCase() === code }
-    catch { return false }
+    const meta = (e.metadata as any) || {}
+    return typeof meta.kioskCode === 'string' && meta.kioskCode.toUpperCase() === code
   })
   if (!event) return NextResponse.json({ error: 'Invalid code' }, { status: 404 })
 

@@ -14,6 +14,7 @@
  */
 
 import { db } from '@/lib/db'
+import { Prisma } from '@prisma/client'
 import path from 'path'
 import fs from 'fs/promises'
 import crypto from 'crypto'
@@ -183,7 +184,7 @@ export async function enqueueEmail(payload: EmailPayload): Promise<string> {
       fromEmail: process.env.EMAIL_FROM || 'noreply@roster.local',
       subject: merged.subject,
       body: merged.body,
-      mergeData: payload.mergeData ? JSON.stringify(payload.mergeData) : null,
+      mergeData: payload.mergeData ?? Prisma.JsonNull,
       status: 'QUEUED',
       scheduledFor: payload.scheduledFor || new Date(),
     },
@@ -309,7 +310,8 @@ export async function emitWebhook(
 
     const matching = hooks.filter((h) => {
       try {
-        const events: string[] = JSON.parse(h.events || '[]')
+        // `events` is a Json field — Prisma already parses it to an array.
+        const events: string[] = Array.isArray(h.events) ? (h.events as string[]) : []
         return events.length === 0 || events.includes(event) || events.includes('*')
       } catch {
         return true
@@ -414,7 +416,7 @@ export async function pushNotification(opts: NotificationPayload): Promise<void>
         title: opts.title,
         body: opts.body,
         link: opts.link || null,
-        metadata: opts.metadata ? JSON.stringify(opts.metadata) : null,
+        metadata: opts.metadata ?? Prisma.JsonNull,
       },
     })
 
