@@ -40,6 +40,11 @@ export async function POST(req: NextRequest) {
   if (!question) {
     return NextResponse.json({ error: 'No question provided.' }, { status: 400 })
   }
+  // Cap question length so a caller can't push a 10MB prompt through the
+  // LLM and blow the token budget / API quota.
+  if (question.length > 4000) {
+    return NextResponse.json({ error: 'Question too long (max 4000 chars).' }, { status: 400 })
+  }
   if (!clubId || clubId === 'ALL') {
     return NextResponse.json(
       { error: 'Pick a specific club first — the Assistant works on one club at a time.' },
@@ -47,9 +52,10 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // Assistant Q&A exposes club data — require insights:read (or audit:read /
-  // club:read as fallback) on the target club.
-  if (!hasPermission(user, 'insights:read', clubId) && !hasPermission(user, 'audit:read', clubId) && !hasPermission(user, 'club:read', clubId)) {
+  // Assistant Q&A exposes club data — require insights:read (or audit:read)
+  // on the target club. The previous `club:read` fallback let any regular
+  // member query the LLM about other members' attendance / finances.
+  if (!hasPermission(user, 'insights:read', clubId) && !hasPermission(user, 'audit:read', clubId)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -213,7 +219,10 @@ async function buildClubDigest(clubId: string, question: string) {
       orderBy: { joinedAt: 'asc' },
     })
     digest.members = members.map((m) => ({
-      name: m.user.name,
+      // Pseudonymize — don't ship member names to the LLM. The userId is a
+      // stable handle the LLM can reference; the caller already has the
+      // roster to resolve ids back to names if needed.
+      id: m.userId,
       grade: m.user.grade,
       graduates: m.user.graduationYear,
       role: m.role,
@@ -312,7 +321,7 @@ async function buildClubDigest(clubId: string, question: string) {
   if (want.tasks) {
     const tasks = await db.task.findMany({
       where: { clubId },
-      select: { id: true, title: true, status: true, priority: true, dueDate: true, assignee: { select: { name: true } } },
+      select: { id: true, title: true, status: true, priority: true, dueDate: true, assignee: { select: { id: true } } },
       take: 30,
       orderBy: { createdAt: 'desc' },
     })
@@ -321,7 +330,8 @@ async function buildClubDigest(clubId: string, question: string) {
       status: t.status,
       priority: t.priority,
       due: t.dueDate,
-      assignee: t.assignee?.name ?? null,
+      // Pseudonymize the assignee — don't ship their name to the LLM.
+      assigneeId: t.assignee?.id ?? null,
     }))
     sources.push({ label: 'Tasks', value: `${tasks.length} total` })
   }
@@ -331,7 +341,7 @@ async function buildClubDigest(clubId: string, question: string) {
     since.setDate(since.getDate() - 90)
     const hours = await db.volunteerHours.findMany({
       where: { clubId, date: { gte: since } },
-      select: { hours: true, status: true, description: true, date: true, user: { select: { name: true } } },
+      select: { hours: true, status: true, description: true, date: true, user: { select: { id: true } } },
       take: 50,
       orderBy: { date: 'desc' },
     })
@@ -343,6 +353,8 @@ async function buildClubDigest(clubId: string, question: string) {
         pendingHours: hours.filter((h) => h.status === 'PENDING').reduce((s, h) => s + h.hours, 0),
         entries: hours.length,
       },
+      // Pseudonymized log entries — no volunteer names in the LLM prompt.
+      entriesById: hours.map((h) => ({ userId: h.user.id, hours: h.hours, status: h.status, date: h.date })),
     }
     sources.push({ label: 'Volunteer', value: `${approved}h approved (90d)` })
   }
@@ -356,7 +368,7 @@ async function buildClubDigest(clubId: string, question: string) {
       }),
       db.inventoryLoan.findMany({
         where: { item: { clubId }, status: 'OUT', dueDate: { lt: new Date() } },
-        select: { item: { select: { name: true } }, user: { select: { name: true } }, dueDate: true },
+        select: { item: { select: { name: true } }, user: { select: { id: true } }, dueDate: true },
         take: 20,
       }),
     ])
@@ -366,8 +378,9 @@ async function buildClubDigest(clubId: string, question: string) {
         acc[i.condition] = (acc[i.condition] || 0) + 1
         return acc
       }, {}),
+      // Pseudonymize the borrower — don't ship their name to the LLM.
       overdueLoans: overdueLoans.map((l) => ({
-        item: l.item.name, borrower: l.user.name, due: l.dueDate,
+        item: l.item.name, borrowerId: l.user.id, due: l.dueDate,
       })),
     }
     sources.push({ label: 'Inventory', value: `${items.length} items` })

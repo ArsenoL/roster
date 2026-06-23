@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ClipboardList, Plus, FileText, BarChart3, Eye, Trash2, Download } from 'lucide-react'
-import { FORM_TYPES, formTypeLabel, formTypeIcon, formatDateTime, timeAgo } from '@/lib/clubhub/types'
+import { FORM_TYPES, formTypeLabel, formTypeIcon, formatDateTime, timeAgo, timeUntil } from '@/lib/clubhub/types'
 import { toast } from 'sonner'
 
 export function FormsTab({ clubId }: { clubId: string }) {
@@ -42,7 +42,7 @@ export function FormsTab({ clubId }: { clubId: string }) {
  ) : (
  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
  {forms.map(f => (
- <Card key={f.id} className="hover: transition-shadow cursor-pointer" onClick={() => setViewForm(f.id)}>
+ <Card key={f.id} className="hover:transition-shadow cursor-pointer" onClick={() => setViewForm(f.id)}>
  <CardHeader className="pb-3">
  <div className="flex items-start justify-between">
  <div className="text-3xl">{formTypeIcon(f.type)}</div>
@@ -58,7 +58,7 @@ export function FormsTab({ clubId }: { clubId: string }) {
  </div>
  <div className="flex items-center justify-between">
  <span><FileText className="h-3 w-3 inline mr-1" />{f._count?.responses || 0} responses</span>
- {f.deadline && <span>Due {timeAgo(f.deadline)}</span>}
+ {f.deadline && <span>Due {new Date(f.deadline) > new Date() ? timeUntil(f.deadline) : timeAgo(f.deadline)}</span>}
  </div>
  </CardContent>
  </Card>
@@ -127,7 +127,7 @@ function CreateFormDialog({ open, onOpenChange, clubId, onCreated }: any) {
  <div>
  <div className="flex items-center justify-between mb-2">
  <Label>Questions</Label>
- <Button size="sm" variant="outline" onClick={() => setFields([...fields, { name: `q${fields.length + 1}`, label: `Question ${fields.length + 1}`, type: 'TEXT', required: false }])}><Plus className="h-3 w-3 mr-1" /> Add Question</Button>
+ <Button size="sm" variant="outline" onClick={() => setFields([...fields, { name: `q${crypto.randomUUID().slice(0, 8)}`, label: `Question ${fields.length + 1}`, type: 'TEXT', required: false }])}><Plus className="h-3 w-3 mr-1" /> Add Question</Button>
  </div>
  <div className="space-y-2">
  {fields.map((f, i) => (
@@ -192,7 +192,7 @@ function ViewFormDialog({ formId, onClose }: any) {
  ) : (
  <div className="space-y-2 max-h-96 overflow-y-auto">
  {responses.map((r: any) => {
- const data = JSON.parse(r.data)
+ const data = (() => { try { return JSON.parse(r.data) } catch { return {} } })()
  return (
  <Card key={r.id}>
  <CardContent className="p-3">
@@ -215,11 +215,18 @@ function ViewFormDialog({ formId, onClose }: any) {
 
  <div className="flex justify-end gap-2">
  <Button variant="outline" onClick={async () => {
+ // RFC 4180 CSV escaping: wrap any field containing comma/quote/newline
+ // in double quotes and double any embedded quotes.
+ const esc = (v: string) => {
+ const s = String(v ?? '')
+ if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'
+ return s
+ }
  const csv = [
- fields.map(f => f.label).join(','),
+ fields.map(f => esc(f.label)).join(','),
  ...responses.map((r: any) => {
- const d = JSON.parse(r.data)
- return fields.map(f => `"${d[f.name] || ''}"`).join(',')
+ const d = (() => { try { return JSON.parse(r.data) } catch { return {} } })()
+ return fields.map(f => esc(d[f.name] || '')).join(',')
  }),
  ].join('\n')
  const blob = new Blob([csv], { type: 'text/csv' })
@@ -228,6 +235,8 @@ function ViewFormDialog({ formId, onClose }: any) {
  a.href = url
  a.download = `${form?.title}-responses.csv`
  a.click()
+ // Revoke the object URL on the next tick so the download has time to start.
+ setTimeout(() => URL.revokeObjectURL(url), 0)
  }}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
  <Button variant="outline" onClick={async () => {
  await apiPatch(`/api/forms/${formId}`, { status: form?.status === 'OPEN' ? 'CLOSED' : 'OPEN' })

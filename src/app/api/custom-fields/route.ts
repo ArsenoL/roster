@@ -73,8 +73,10 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  // Never allow clubId to be reassigned via PATCH.
+  // Never allow clubId or formId to be reassigned via PATCH — reassigning
+  // formId would silently graft a custom field onto another club's form.
   delete updates.clubId
+  delete updates.formId
 
   const field = await db.customField.update({
     where: { id },

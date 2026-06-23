@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
       _count: { select: { comments: true } },
     },
     orderBy: { createdAt: 'desc' },
+    take: 200,
   })
 
   return NextResponse.json({ documents: docs })

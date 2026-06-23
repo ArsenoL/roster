@@ -34,7 +34,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const resource = await db.resource.findUnique({ where: { id }, select: { clubId: true, requiresApproval: true } })
+  const resource = await db.resource.findUnique({ where: { id }, select: { clubId: true, requiresApproval: true, bookingWindowDays: true, maxBookingHours: true } })
   if (!resource) return NextResponse.json({ error: 'Resource not found' }, { status: 404 })
   // Booking requires club:read (members can book resources). Approval flow
   // is handled by the requiresApproval flag on the resource.
@@ -44,37 +44,70 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const body = await req.json()
 
-  // Check for conflicts
+  // Validate start/end — parseable dates, end strictly after start, and
+  // start must be in the future.
   const start = new Date(body.startTime)
   const end = new Date(body.endTime)
-  const conflicts = await db.resourceBooking.findFirst({
-    where: {
-      resourceId: id,
-      status: { in: ['PENDING', 'APPROVED'] },
-      OR: [
-        { startTime: { lte: start }, endTime: { gt: start } },
-        { startTime: { lt: end }, endTime: { gte: end } },
-        { startTime: { gte: start }, endTime: { lte: end } },
-      ],
-    },
+  if (isNaN(start.getTime()) || isNaN(end.getTime()) || end <= start) {
+    return NextResponse.json({ error: 'Invalid startTime or endTime' }, { status: 400 })
+  }
+  if (start <= new Date()) {
+    return NextResponse.json({ error: 'startTime must be in the future' }, { status: 400 })
+  }
+
+  // Enforce resource booking window (e.g. can't book more than 90 days out).
+  if (resource.bookingWindowDays) {
+    const maxStart = new Date(Date.now() + resource.bookingWindowDays * 86400000)
+    if (start >= maxStart) {
+      return NextResponse.json({ error: `Bookings must start within ${resource.bookingWindowDays} days` }, { status: 400 })
+    }
+  }
+
+  // Enforce max booking duration (e.g. can't book more than 8 hours).
+  if (resource.maxBookingHours) {
+    const hours = (end.getTime() - start.getTime()) / 3600000
+    if (hours > resource.maxBookingHours) {
+      return NextResponse.json({ error: `Booking exceeds max ${resource.maxBookingHours} hours` }, { status: 400 })
+    }
+  }
+
+  // Race-safe conflict check + create: re-run the conflict query inside the
+  // transaction so two concurrent POSTs can't both pass an empty conflict
+  // check and create overlapping bookings.
+  const booking = await db.$transaction(async (tx) => {
+    const conflicts = await tx.resourceBooking.findFirst({
+      where: {
+        resourceId: id,
+        status: { in: ['PENDING', 'APPROVED'] },
+        OR: [
+          { startTime: { lte: start }, endTime: { gt: start } },
+          { startTime: { lt: end }, endTime: { gte: end } },
+          { startTime: { gte: start }, endTime: { lte: end } },
+        ],
+      },
+    })
+    if (conflicts) {
+      return { kind: 'conflict' as const }
+    }
+
+    const created = await tx.resourceBooking.create({
+      data: {
+        resourceId: id,
+        userId: user.id,  // always the signed-in user
+        eventId: body.eventId || null,
+        startTime: start,
+        endTime: end,
+        purpose: body.purpose || null,
+        status: resource.requiresApproval ? 'PENDING' : 'APPROVED',
+        notes: body.notes || null,
+      },
+    })
+    return { kind: 'ok' as const, booking: created }
   })
 
-  if (conflicts) {
+  if (booking.kind === 'conflict') {
     return NextResponse.json({ error: 'Time conflicts with existing booking' }, { status: 409 })
   }
 
-  const booking = await db.resourceBooking.create({
-    data: {
-      resourceId: id,
-      userId: user.id,  // always the signed-in user
-      eventId: body.eventId || null,
-      startTime: start,
-      endTime: end,
-      purpose: body.purpose || null,
-      status: resource.requiresApproval ? 'PENDING' : 'APPROVED',
-      notes: body.notes || null,
-    },
-  })
-
-  return NextResponse.json(booking)
+  return NextResponse.json(booking.booking)
 }

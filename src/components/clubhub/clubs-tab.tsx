@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { useFetch, apiPost, apiDelete } from '@/lib/clubhub/hooks'
+import { useState, useEffect } from 'react'
+import { useFetch, apiPost, apiPatch, apiDelete } from '@/lib/clubhub/hooks'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -119,17 +119,12 @@ export function ClubsTab({ onNavigateToSettings }: { onNavigateToSettings: (club
  onSave={async (data) => {
  if (!editClub) return
  try {
- const r = await fetch(`/api/clubs/${editClub.id}`, {
- method: 'PATCH',
- headers: { 'Content-Type': 'application/json' },
- body: JSON.stringify(data)
- })
- if (!r.ok) throw new Error('Failed to update')
+ await apiPatch(`/api/clubs/${editClub.id}`, data)
  toast.success('Club updated')
  setEditClub(null)
  refetch()
  } catch (e: any) {
- toast.error(e.message)
+ if (!e?.silent) toast.error(e.message)
  }
  }}
  />
@@ -248,7 +243,7 @@ function ClubDialog({ open, onOpenChange, onSave, club }: {
  onSave: (data: any) => void
  club?: Club | null
 }) {
- const [form, setForm] = useState<any>(club || {
+ const initialForm = {
  name: '',
  description: '',
  category: 'OTHER',
@@ -261,12 +256,16 @@ function ClubDialog({ open, onOpenChange, onSave, club }: {
  dues: 0,
  isPublic: true,
  requireApproval: false,
- })
+ }
+ const [form, setForm] = useState<any>(club || { ...initialForm })
 
- // Reset form when club changes
- useState(() => {
- if (club) setForm(club)
- })
+ // Reset form when club changes. The original code used `useState(() => …)`
+ // (a lazy initializer) which only runs ONCE on first mount — so opening
+ // the dialog to edit club A then opening it for club B kept showing A.
+ useEffect(() => {
+ // eslint-disable-next-line react-hooks/set-state-in-effect
+ if (club) setForm({ ...initialForm, ...club })
+ }, [club])
 
  const days = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY']
  const presetColors = ['#10b981', '#6366f1', '#ec4899', '#f59e0b', '#06b6d4', '#8b5cf6', '#ef4444', '#14b8a6', '#f97316', '#a855f7']

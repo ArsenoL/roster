@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useFetch, apiPost, apiPatch, apiDelete } from '@/lib/clubhub/hooks'
+import { useAuth } from '@/lib/clubhub/use-auth'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -55,7 +56,7 @@ export function DocumentsTab({ clubId }: { clubId: string }) {
  {docs.map(d => {
  const cat = CATEGORIES.find(c => c.value === d.category) || CATEGORIES[CATEGORIES.length - 1]
  return (
- <Card key={d.id} className="hover: transition-shadow cursor-pointer" onClick={() => setOpenDoc(d)}>
+ <Card key={d.id} className="hover:transition-shadow cursor-pointer" onClick={() => setOpenDoc(d)}>
  <CardHeader className="pb-3">
  <div className="flex items-start justify-between">
  <div className="text-3xl">{cat.emoji}</div>
@@ -75,7 +76,11 @@ export function DocumentsTab({ clubId }: { clubId: string }) {
  <span className="flex items-center gap-1"><MessageSquare className="h-3 w-3" />{(d as any)._count?.comments || 0}</span>
  </div>
  {d.fileUrl && (
- <Button size="sm" variant="outline" className="w-full mt-2" onClick={(e) => { e.stopPropagation(); window.open(d.fileUrl, '_blank') }}>
+ <Button size="sm" variant="outline" className="w-full mt-2" onClick={(e) => {
+ e.stopPropagation()
+ if (!/^https?:\/\//i.test(d.fileUrl)) { toast.error('Invalid file URL'); return }
+ window.open(d.fileUrl, '_blank', 'noopener,noreferrer')
+ }}>
  <Download className="h-3 w-3 mr-1" /> Download
  </Button>
  )}
@@ -97,19 +102,16 @@ function DocumentDetailDialog({ doc, onClose }: { doc: any; onClose: () => void 
  doc ? `/api/document-comments?documentId=${doc.id}` : null
  )
  const [newComment, setNewComment] = useState('')
+ const { user } = useAuth()
  const comments = data?.comments || []
 
  async function addComment() {
  if (!newComment.trim() || !doc) return
+ if (!user) { toast.error('Sign in to comment'); return }
  try {
- // For demo, use first club member as commenter
- const res = await fetch(`/api/members?clubId=${doc.clubId}&limit=1`)
- const d = await res.json()
- const userId = d.members?.[0]?.userId
- if (!userId) { toast.error('No members found'); return }
  await apiPost('/api/document-comments', {
  documentId: doc.id,
- userId,
+ userId: user.id,
  body: newComment,
  })
  setNewComment('')
@@ -143,7 +145,10 @@ function DocumentDetailDialog({ doc, onClose }: { doc: any; onClose: () => void 
  <div className="space-y-3">
  {doc.description && <p className="text-sm text-muted-foreground">{doc.description}</p>}
  {doc.fileUrl && (
- <Button size="sm" variant="outline" onClick={() => window.open(doc.fileUrl, '_blank')}>
+ <Button size="sm" variant="outline" onClick={() => {
+ if (!/^https?:\/\//i.test(doc.fileUrl)) { toast.error('Invalid file URL'); return }
+ window.open(doc.fileUrl, '_blank', 'noopener,noreferrer')
+ }}>
  <Download className="h-3 w-3 mr-1" /> Download file
  </Button>
  )}
@@ -158,7 +163,7 @@ function DocumentDetailDialog({ doc, onClose }: { doc: any; onClose: () => void 
  <div className="text-xs text-muted-foreground py-4 text-center">No comments yet.</div>
  )}
  {comments.map((c) => (
- <div key={c.id} className={`p-2 rounded-lg ${c.resolved ? 'bg-foreground dark:bg-emerald-950/20' : 'bg-muted/50'}`}>
+ <div key={c.id} className={`p-2 rounded-lg ${c.resolved ? 'bg-emerald-100 dark:bg-emerald-950/20' : 'bg-muted/50'}`}>
  <div className="flex items-start gap-2">
  <Avatar className="h-6 w-6 shrink-0" style={{ backgroundColor: avatarColor(c.user?.name || '?') }}>
  <AvatarFallback className="text-white text-[10px]">{initials(c.user?.name || '?')}</AvatarFallback>
@@ -167,7 +172,7 @@ function DocumentDetailDialog({ doc, onClose }: { doc: any; onClose: () => void 
  <div className="flex items-center justify-between gap-2">
  <div className="text-xs font-medium">{c.user?.name}</div>
  <div className="flex items-center gap-1">
- {c.resolved && <Badge className="text-[9px] bg-foreground">RESOLVED</Badge>}
+ {c.resolved && <Badge className="text-[9px] bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300">RESOLVED</Badge>}
  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => toggleResolve(c)}>
  {c.resolved ? <X className="h-3 w-3" /> : <Check className="h-3 w-3" />}
  </Button>

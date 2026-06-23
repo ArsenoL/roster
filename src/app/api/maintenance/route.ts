@@ -57,41 +57,48 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const log = await db.maintenanceLog.create({
-    data: {
-      itemId: body.itemId,
-      type: body.type || 'REPAIR',
-      status: body.status || 'SCHEDULED',
-      description: body.description,
-      cost: body.cost || 0,
-      vendor: body.vendor || null,
-      performedById: user.id,  // always the signed-in user
-      scheduledFor: body.scheduledFor ? new Date(body.scheduledFor) : null,
-      completedAt: body.completedAt ? new Date(body.completedAt) : null,
-      notes: body.notes || null,
-    },
-    include: { item: { select: { name: true } } },
-  })
-
-  // If item is being repaired, update condition to BROKEN until fixed
-  if (body.type === 'REPAIR' && body.status !== 'COMPLETED') {
-    await db.inventoryItem.update({
-      where: { id: body.itemId },
-      data: { condition: 'BROKEN' },
+  // Wrap log create + condition update + newCondition update in a transaction
+  // so a crash between them can't leave the inventory item in an inconsistent
+  // state (e.g. logged as REPAIR but condition still GOOD).
+  const log = await db.$transaction(async (tx) => {
+    const created = await tx.maintenanceLog.create({
+      data: {
+        itemId: body.itemId,
+        type: body.type || 'REPAIR',
+        status: body.status || 'SCHEDULED',
+        description: body.description,
+        cost: body.cost || 0,
+        vendor: body.vendor || null,
+        performedById: user.id,  // always the signed-in user
+        scheduledFor: body.scheduledFor ? new Date(body.scheduledFor) : null,
+        completedAt: body.completedAt ? new Date(body.completedAt) : null,
+        notes: body.notes || null,
+      },
+      include: { item: { select: { name: true } } },
     })
-  }
-  if (body.status === 'COMPLETED') {
-    await db.inventoryItem.update({
-      where: { id: body.itemId },
-      data: { condition: body.newCondition || 'GOOD' },
-    })
-  }
 
-  await db.auditLog.create({
-    data: {
-      action: 'create', entity: 'MaintenanceLog', entityId: log.id,
-      clubId: item.clubId, userId: user.id, after: JSON.stringify(log),
+    // If item is being repaired, update condition to BROKEN until fixed
+    if (body.type === 'REPAIR' && body.status !== 'COMPLETED') {
+      await tx.inventoryItem.update({
+        where: { id: body.itemId },
+        data: { condition: 'BROKEN' },
+      })
     }
+    if (body.status === 'COMPLETED') {
+      await tx.inventoryItem.update({
+        where: { id: body.itemId },
+        data: { condition: body.newCondition || 'GOOD' },
+      })
+    }
+
+    await tx.auditLog.create({
+      data: {
+        action: 'create', entity: 'MaintenanceLog', entityId: created.id,
+        clubId: item.clubId, userId: user.id, after: JSON.stringify(created),
+      }
+    })
+
+    return created
   })
 
   return NextResponse.json({ log })

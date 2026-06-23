@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyModule } from '@/lib/clubhub/module-gate'
 import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
+import { membershipBelongsToClub } from '@/lib/clubhub/sanitize'
 
 // GET /api/finance?clubId=...
 export async function GET(req: NextRequest) {
@@ -104,41 +105,71 @@ export async function POST(req: NextRequest) {
   if (!body.clubId || !hasPermission(user, 'finance:write', body.clubId)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
-  const tx = await db.transaction.create({
-    data: {
-      clubId: body.clubId,
-      type: body.type,
-      category: body.category,
-      amount: parseFloat(body.amount),
-      description: body.description || null,
-      date: body.date ? new Date(body.date) : new Date(),
-      recordedById: user.id,  // always the signed-in user
-      memberId: body.memberId || null,
-      eventId: body.eventId || null,
-      receiptUrl: body.receiptUrl || null,
-      status: body.status || 'COMPLETED',
-      paymentMethod: body.paymentMethod || null,
-      checkNumber: body.checkNumber || null,
-    },
-  })
 
-  // Update budget spent if applicable
-  if (body.type === 'EXPENSE' && body.budgetId) {
-    await db.budget.update({
-      where: { id: body.budgetId },
-      data: { spent: { increment: parseFloat(body.amount) } },
-    })
+  // Validate type against the allowed whitelist.
+  const ALLOWED_TYPES = ['INCOME', 'EXPENSE', 'DUE', 'PAYMENT']
+  if (!body.type || !ALLOWED_TYPES.includes(body.type)) {
+    return NextResponse.json({ error: 'Invalid transaction type' }, { status: 400 })
   }
 
-  await db.auditLog.create({
-    data: {
-      action: 'create',
-      entity: 'Transaction',
-      entityId: tx.id,
-      clubId: body.clubId,
-      userId: user.id,
-      after: JSON.stringify(tx),
-    },
+  // Validate amount — must be a finite, positive number below 1e9.
+  // Defends against NaN (parseFloat('abc')), negative amounts, and absurd
+  // values that would overflow Float precision.
+  const amount = typeof body.amount === 'number' ? body.amount : parseFloat(body.amount)
+  if (!Number.isFinite(amount) || amount <= 0 || amount >= 1e9) {
+    return NextResponse.json({ error: 'Invalid amount' }, { status: 400 })
+  }
+
+  // If a member is referenced, verify the membership is active in this club
+  // (prevents cross-club IDOR via memberId).
+  if (body.memberId) {
+    const ok = await membershipBelongsToClub(body.memberId, body.clubId)
+    if (!ok) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const tx = await db.$transaction(async (tx) => {
+    const created = await tx.transaction.create({
+      data: {
+        clubId: body.clubId,
+        type: body.type,
+        category: body.category,
+        amount,
+        description: body.description || null,
+        date: body.date ? new Date(body.date) : new Date(),
+        recordedById: user.id,  // always the signed-in user
+        memberId: body.memberId || null,
+        eventId: body.eventId || null,
+        receiptUrl: body.receiptUrl || null,
+        status: body.status || 'COMPLETED',
+        paymentMethod: body.paymentMethod || null,
+        checkNumber: body.checkNumber || null,
+      },
+    })
+
+    // Update budget spent if applicable. Scope the update with clubId so a
+    // caller can't move another club's budget spent counter with a
+    // cross-club budgetId (IDOR). updateMany accepts compound where filters
+    // (update only accepts a unique id), so we use it and rely on count to
+    // detect a miss.
+    if (body.type === 'EXPENSE' && body.budgetId) {
+      await tx.budget.updateMany({
+        where: { id: body.budgetId, clubId: body.clubId },
+        data: { spent: { increment: amount } },
+      })
+    }
+
+    await tx.auditLog.create({
+      data: {
+        action: 'create',
+        entity: 'Transaction',
+        entityId: created.id,
+        clubId: body.clubId,
+        userId: user.id,
+        after: JSON.stringify(created),
+      },
+    })
+
+    return created
   })
 
   return NextResponse.json(tx)

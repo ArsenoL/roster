@@ -22,12 +22,27 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  // If isDefault, unset other defaults for this user+tab
+  // Wrap "clear other defaults" + "create new default" in a transaction so
+  // two concurrent POSTs with isDefault=true can't both end up as the
+  // default for the same tab — the updateMany + create must be atomic.
   if (body.isDefault) {
-    await db.savedView.updateMany({
-      where: { userId: user.id, tab: body.tab },
-      data: { isDefault: false },
+    const view = await db.$transaction(async (tx) => {
+      await tx.savedView.updateMany({
+        where: { userId: user.id, tab: body.tab },
+        data: { isDefault: false },
+      })
+      return tx.savedView.create({
+        data: {
+          userId: user.id,  // always the signed-in user
+          clubId: body.clubId || null,
+          tab: body.tab,
+          name: body.name,
+          filters: JSON.stringify(body.filters || {}),
+          isDefault: body.isDefault || false,
+        }
+      })
     })
+    return NextResponse.json({ view })
   }
   const view = await db.savedView.create({
     data: {

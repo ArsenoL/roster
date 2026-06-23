@@ -34,10 +34,16 @@ export async function POST(req: NextRequest) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const isAdmin = user.role === 'SUPER_ADMIN' || user.role === 'SCHOOL_ADMIN'
+  if (!isAdmin) {
+    return NextResponse.json({ error: 'Only administrators may push notifications to other users.' }, { status: 403 })
+  }
+
   const body = await req.json()
+  const targetUserId = isAdmin && body.userId ? body.userId : user.id
   const n = await db.notification.create({
     data: {
-      userId: body.userId,
+      userId: targetUserId,
       type: body.type || 'announcement',
       title: body.title,
       body: body.body || null,

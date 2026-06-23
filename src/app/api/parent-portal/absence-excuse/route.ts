@@ -1,93 +1,52 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { clampStr, LIMITS } from '@/lib/clubhub/sanitize'
 
-/**
- * POST /api/parent-portal/absence-excuse
- * Body: { token, eventId, userId, reason, description }
- * Parent submits an absence excuse for their child.
- */
 export async function POST(req: NextRequest) {
   const body = await req.json()
   const { token, eventId, userId, reason, description } = body
-  if (!token || !eventId || !userId || !reason) {
-    return NextResponse.json({ error: 'token, eventId, userId, reason required' }, { status: 400 })
-  }
+  if (!token || !eventId || !userId || !reason) return NextResponse.json({ error: 'token, eventId, userId, reason required' }, { status: 400 })
 
-  // Verify token + relationship
+  const safeReason = clampStr(reason, 200)
+  const safeDescription = description ? clampStr(description, LIMITS.DESCRIPTION) : null
+
   const tokenRow = await db.parentPortalToken.findUnique({ where: { token } })
   if (!tokenRow) return NextResponse.json({ error: 'Invalid token' }, { status: 404 })
+  if (tokenRow.expiresAt && tokenRow.expiresAt < new Date()) return NextResponse.json({ error: 'Token expired' }, { status: 400 })
 
   const guardianship = await db.parentGuardian.findUnique({
     where: { parentId_studentId: { parentId: tokenRow.parentId, studentId: userId } },
   })
-  if (!guardianship) {
-    return NextResponse.json({ error: 'Not authorized for this student' }, { status: 403 })
-  }
-  if (!guardianship.canExcuseAbsences) {
-    return NextResponse.json({ error: 'You do not have permission to excuse absences for this student' }, { status: 403 })
-  }
+  if (!guardianship) return NextResponse.json({ error: 'Not authorized for this student' }, { status: 403 })
+  if (!guardianship.canExcuseAbsences) return NextResponse.json({ error: 'You do not have permission to excuse absences for this student' }, { status: 403 })
 
   const event = await db.event.findUnique({ where: { id: eventId } })
   if (!event) return NextResponse.json({ error: 'Event not found' }, { status: 404 })
 
-  // Create excuse record
+  // Create excuse as PENDING — officer review required via PATCH /api/attendance-excuses/[id]
   const excuse = await db.attendanceExcuse.create({
     data: {
-      eventId,
-      userId,
-      reason,
-      description: description || null,
-      submittedById: tokenRow.parentId,
-      status: 'PENDING',
-    }
+      eventId, userId, reason: safeReason, description: safeDescription,
+      submittedById: tokenRow.parentId, status: 'PENDING',
+    },
   })
 
-  // Update attendance record to EXCUSED (auto-approved if parent has permission)
-  const attendance = await db.attendance.findUnique({
-    where: { eventId_userId: { eventId, userId } },
-  })
-  if (attendance) {
-    await db.attendance.update({
-      where: { id: attendance.id },
-      data: { status: 'EXCUSED' },
-    })
-  } else {
-    await db.attendance.create({
-      data: {
-        eventId, userId, status: 'EXCUSED', method: 'MANUAL', pointsEarned: 0,
-      },
-    })
-  }
-
-  await db.attendanceExcuse.update({
-    where: { id: excuse.id },
-    data: { status: 'APPROVED', approvedById: tokenRow.parentId, reviewedAt: new Date() },
-  })
-
-  // Notify club leaders (president + VP + committee heads). ADVISOR is a
-  // global UserRole, not a MembershipRole — we look up the club's advisor
-  // separately via Club.advisorId.
   const leaders = await db.membership.findMany({
     where: { clubId: event.clubId, role: { in: ['PRESIDENT', 'VICE_PRESIDENT', 'COMMITTEE_HEAD'] } },
     select: { userId: true },
   })
-  const club = await db.club.findUnique({
-    where: { id: event.clubId },
-    select: { advisorId: true },
-  })
+  const club = await db.club.findUnique({ where: { id: event.clubId }, select: { advisorId: true } })
   const leaderIds = new Set(leaders.map(l => l.userId))
   if (club?.advisorId) leaderIds.add(club.advisorId)
   const parent = await db.user.findUnique({ where: { id: tokenRow.parentId }, select: { name: true } })
   const student = await db.user.findUnique({ where: { id: userId }, select: { name: true } })
 
-  await Promise.all(Array.from(leaderIds).map((userId) =>
+  await Promise.all(Array.from(leaderIds).map((uid) =>
     db.notification.create({
       data: {
-        userId,
-        clubId: event.clubId,
-        type: 'ATTENDANCE_EXCUSE',
-        title: `Absence excused for ${student?.name}`,
-        body: `${parent?.name} (parent/guardian) excused ${student?.name} from "${event.title}" — reason: ${reason}.`,
+        userId: uid, clubId: event.clubId, type: 'ATTENDANCE_EXCUSE',
+        title: `Absence excuse submitted for ${student?.name}`,
+        body: `${parent?.name} (parent/guardian) submitted an excuse for ${student?.name} from "${event.title}" — reason: ${safeReason}. Review pending.`,
         link: `/api/events?id=${eventId}`,
       },
     }).catch(() => {})

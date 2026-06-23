@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { emitClubEvent, enqueueEmail } from '@/lib/clubhub/dispatchers'
 import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
+import { escapeHtml } from '@/lib/clubhub/sanitize'
 
 // GET /api/announcements?clubId=...
 // Public clubs' announcements are visible to any signed-in user (the public
@@ -90,23 +91,30 @@ export async function POST(req: NextRequest) {
 
     if (body.sendEmail) {
       const club = announcement.club
-      for (const m of members) {
-        await enqueueEmail({
-          toEmail: m.user.email,
-          toName: m.user.name,
-          subject: `[${club.name}] ${announcement.title}`,
-          body: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
-            <h2 style="color:${club.primaryColor}">${announcement.title}</h2>
-            <p><strong>From ${club.name}</strong> · ${new Date(announcement.createdAt).toLocaleString()}</p>
+      // HTML-escape title + content before interpolating into the email
+      // body — the email HTML is rendered by the recipient's mail client,
+      // and an unescaped title like '<script>alert(1)</script>' would
+      // execute in some clients.
+      const safeTitle = escapeHtml(announcement.title)
+      const safeContent = escapeHtml(announcement.content)
+      // Fan out email in parallel instead of sequentially awaiting each
+      // enqueue. Sequential awaits made a 200-member announcement take
+      // ~200× the per-email latency to return a response to the caller.
+      await Promise.all(members.map((m) => enqueueEmail({
+        toEmail: m.user.email,
+        toName: m.user.name,
+        subject: `[${club.name}] ${announcement.title}`,
+        body: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+            <h2 style="color:${club.primaryColor}">${safeTitle}</h2>
+            <p><strong>From ${escapeHtml(club.name)}</strong> · ${new Date(announcement.createdAt).toLocaleString()}</p>
             <hr style="border:none;border-top:1px solid #eee;margin:20px 0" />
-            <div style="white-space:pre-wrap;line-height:1.6">${announcement.content}</div>
+            <div style="white-space:pre-wrap;line-height:1.6">${safeContent}</div>
             <hr style="border:none;border-top:1px solid #eee;margin:20px 0" />
-            <p style="color:#999;font-size:12px">You received this because you're a member of ${club.name}.</p>
+            <p style="color:#999;font-size:12px">You received this because you're a member of ${escapeHtml(club.name)}.</p>
           </div>`,
-          clubId: body.clubId,
-          mergeData: { name: m.user.name, club_name: club.name, title: announcement.title },
-        })
-      }
+        clubId: body.clubId,
+        mergeData: { name: m.user.name, club_name: club.name, title: announcement.title },
+      })))
     }
 
     if (body.sendSMS) {

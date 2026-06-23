@@ -18,15 +18,16 @@ export async function GET(req: NextRequest) {
 
   const where: any = {}
   if (clubId && clubId !== 'ALL') {
-    // Insights require insights:read on the club (or audit:read / club:read as
-    // fallback for officers who don't have the explicit perm).
-    if (!hasPermission(user, 'insights:read', clubId) && !hasPermission(user, 'audit:read', clubId) && !hasPermission(user, 'club:read', clubId)) {
+    // Insights require insights:read (or audit:read for officers who don't
+    // have the explicit perm). The previous `club:read` fallback let any
+    // regular member read AI-generated insights about other members.
+    if (!hasPermission(user, 'insights:read', clubId) && !hasPermission(user, 'audit:read', clubId)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
     where.clubId = clubId
   } else if (user.role !== 'SUPER_ADMIN' && user.role !== 'SCHOOL_ADMIN') {
     const myClubIds = user.memberships
-      .filter(m => hasPermission(user, 'insights:read', m.clubId) || hasPermission(user, 'audit:read', m.clubId) || hasPermission(user, 'club:read', m.clubId))
+      .filter(m => hasPermission(user, 'insights:read', m.clubId) || hasPermission(user, 'audit:read', m.clubId))
       .map(m => m.clubId)
     where.clubId = { in: myClubIds.length > 0 ? myClubIds : ['__none__'] }
   }
@@ -71,10 +72,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  // Clear old unresolved insights for this club
-  await db.aiInsight.deleteMany({ where: { clubId, isResolved: false } })
-
-  // Gather all the data for analysis
+  // Clear old unresolved insights for this club, then gather data +
+  // generate insights, then persist — all atomically so a partial failure
+  // can't wipe old insights without writing new ones.
   const data = await collectClubData(clubId)
   const heuristicInsights = runHeuristics(clubId, data)
 
@@ -90,10 +90,12 @@ export async function POST(req: NextRequest) {
   // Merge: prefer LLM-augmented insights if present, else use heuristics
   const finalInsights = llmInsights.length > 0 ? llmInsights : heuristicInsights
 
-  // Persist
-  const created = await Promise.all(
-    finalInsights.map((i) => db.aiInsight.create({ data: i }))
-  )
+  const created = await db.$transaction(async (tx) => {
+    await tx.aiInsight.deleteMany({ where: { clubId, isResolved: false } })
+    return Promise.all(
+      finalInsights.map((i) => tx.aiInsight.create({ data: i }))
+    )
+  })
 
   // Fire webhook so external systems can react
   emitWebhook(clubId, 'insight.generated', {
@@ -321,13 +323,19 @@ async function generateLLMInsights(clubId: string, data: any, heuristics: any[])
       title: e.title, capacity: e.capacity, rsvps: e._count.rsvps, startTime: e.startTime,
     })),
     overdueEquipment: data.overdueLoans.length,
+    // Pseudonymize at-risk members before sending to the LLM — member
+    // names are PII and shouldn't be shipped to a third-party model.
+    // The LLM only needs aggregate signal + a stable id to reference back.
     atRiskMembers: data.members.filter((m: any) => {
       if (m.attendances.length < 3) return false
       const present = m.attendances.filter((a: any) => ['PRESENT', 'LATE', 'VIRTUAL'].includes(a.status)).length
       return present / m.attendances.length < 0.5
-    }).map((m: any) => ({ name: m.user.name, grade: m.user.grade })),
+    }).map((m: any) => ({ id: m.userId, grade: m.user.grade })),
+    // Heuristic titles can embed member names (e.g. "Jane Doe may be at
+    // risk"). Strip the title from the prompt to avoid leaking PII; the
+    // type+severity is enough context for the LLM to expand on.
     heuristicFindings: heuristics.map((h) => ({
-      type: h.type, title: h.title, severity: h.severity,
+      type: h.type, severity: h.severity,
     })),
   }
 

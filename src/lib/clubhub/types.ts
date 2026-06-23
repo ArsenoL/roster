@@ -962,6 +962,24 @@ export function timeAgo(d: string | Date): string {
   return formatDate(date)
 }
 
+/**
+ * Format a future date as "in Xd"/"in Xh"/"in Xm". For dates in the past,
+ * falls back to `timeAgo` so callers can blindly pass either without first
+ * checking direction. Useful for countdown-style UIs ("poll ends in 2d").
+ */
+export function timeUntil(d: string | Date): string {
+  const date = typeof d === 'string' ? new Date(d) : d
+  const seconds = Math.floor((date.getTime() - Date.now()) / 1000)
+  if (seconds <= 0) return timeAgo(date)
+  if (seconds < 60) return 'in <1m'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `in ${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `in ${hours}h`
+  const days = Math.floor(hours / 24)
+  return `in ${days}d`
+}
+
 export function initials(name: string): string {
   return name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
 }

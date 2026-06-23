@@ -23,9 +23,8 @@ export function AttendanceExcusesTab({ clubId }: { clubId: string }) {
 
  async function review(id: string, status: 'APPROVED' | 'DENIED', notes?: string) {
  try {
- // Use the first membership of the club as the reviewer (demo). In real auth, this would be current user.
- const reviewerId = 'demo-user-1'
- await apiPatch(`/api/attendance-excuses/${id}`, { status, approvedById: reviewerId, reviewerNotes: notes })
+ // Server derives the reviewer from the session — don't send a client-supplied id.
+ await apiPatch(`/api/attendance-excuses/${id}`, { status, reviewerNotes: notes })
  toast.success(`Excuse ${status.toLowerCase()}`)
  setReviewing(null)
  refetch()
@@ -109,8 +108,8 @@ export function AttendanceExcusesTab({ clubId }: { clubId: string }) {
 }
 
 function StatusBadge({ status }: { status: string }) {
- if (status === 'PENDING') return <Badge variant="outline" className="text-foreground border-amber-300">PENDING</Badge>
- if (status === 'APPROVED') return <Badge className="bg-foreground">APPROVED</Badge>
+ if (status === 'PENDING') return <Badge variant="outline" className="text-amber-700 dark:text-amber-300 border-amber-300">PENDING</Badge>
+ if (status === 'APPROVED') return <Badge className="bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300">APPROVED</Badge>
  if (status === 'DENIED') return <Badge variant="destructive">DENIED</Badge>
  return <Badge variant="outline">{status}</Badge>
 }

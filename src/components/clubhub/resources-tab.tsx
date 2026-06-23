@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useFetch, apiPost, apiPatch } from '@/lib/clubhub/hooks'
+import { useAuth } from '@/lib/clubhub/use-auth'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -44,7 +45,7 @@ export function ResourcesTab({ clubId }: { clubId: string }) {
  ) : (
  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
  {resources.map(r => (
- <Card key={r.id} className="hover: transition-shadow">
+ <Card key={r.id} className="hover:transition-shadow">
  <CardHeader className="pb-3">
  <div className="flex items-start justify-between">
  <div className="text-3xl">{resourceTypeEmoji(r.type)}</div>
@@ -135,11 +136,12 @@ function BookResourceDialog({ resourceId, clubId, onClose }: any) {
  purpose: '',
  notes: '',
  })
- const { data: membersData } = useFetch<{ members: any[] }>(clubId !== 'ALL' ? `/api/members?clubId=${clubId}` : '/api/members')
- const userId = membersData?.members?.[0]?.userId || ''
+ const { user } = useAuth()
+ const userId = user?.id || ''
 
  const submit = async () => {
  try {
+ if (!userId) { toast.error('Sign in to book a resource'); return }
  await apiPost(`/api/resources/${resourceId}/bookings`, { ...form, userId })
  toast.success('Booking created')
  onClose()

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
+import { parsePagination } from '@/lib/clubhub/sanitize'
 
 // GET /api/members?clubId=...&search=...&role=...&grade=...&status=...
 // Auth required. Without a clubId, restricted to the caller's own clubs.
@@ -15,8 +16,7 @@ export async function GET(req: NextRequest) {
   const role = url.searchParams.get('role')
   const grade = url.searchParams.get('grade')
   const status = url.searchParams.get('status')
-  const limit = parseInt(url.searchParams.get('limit') || '200')
-  const offset = parseInt(url.searchParams.get('offset') || '0')
+  const { limit, offset } = parsePagination(req)
 
   const where: any = {}
   if (clubId && clubId !== 'ALL') {
@@ -39,7 +39,9 @@ export async function GET(req: NextRequest) {
     ]
   }
   if (grade && grade !== 'ALL') {
-    where.user = { grade: parseInt(grade) }
+    const g = Number(grade)
+    if (!Number.isFinite(g)) return NextResponse.json({ error: 'Invalid grade' }, { status: 400 })
+    where.user = { grade: g }
   }
 
   const [memberships, total] = await Promise.all([
@@ -112,17 +114,32 @@ export async function POST(req: NextRequest) {
   if (existing) {
     return NextResponse.json({ member: existing, already: true })
   }
-  const member = await db.membership.create({
-    data: {
-      userId: targetUser.id,
-      clubId: body.clubId,
+  const member = await db.membership.upsert({
+    where: { userId_clubId: { userId: targetUser.id, clubId: body.clubId } },
+    create: {
+      userId: targetUser.id, clubId: body.clubId,
       role: body.role || 'MEMBER',
       customData: body.customData ? JSON.stringify(body.customData) : null,
     },
-    include: { user: true }
+    update: {
+      role: body.role || 'MEMBER',
+      status: 'ACTIVE',
+      customData: body.customData ? JSON.stringify(body.customData) : null,
+    },
+  })
+
+  const auditAfter = JSON.stringify({
+    id: member.id, userId: targetUser.id, clubId: body.clubId,
+    role: member.role, status: member.status, joinedAt: member.joinedAt,
   })
   await db.auditLog.create({
-    data: { action: 'create', entity: 'Membership', entityId: member.id, clubId: body.clubId, userId: user.id, after: JSON.stringify(member) }
+    data: { action: 'create', entity: 'Membership', entityId: member.id, clubId: body.clubId, userId: user.id, after: auditAfter },
   })
-  return NextResponse.json({ member })
+
+  return NextResponse.json({
+    member: {
+      ...member,
+      user: { id: targetUser.id, name: targetUser.name, email: targetUser.email, studentId: targetUser.studentId, grade: targetUser.grade },
+    },
+  })
 }

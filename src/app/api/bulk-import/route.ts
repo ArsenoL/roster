@@ -21,6 +21,10 @@ export async function POST(req: NextRequest) {
   if (!clubId || !type || !Array.isArray(rows)) {
     return NextResponse.json({ error: 'clubId, type, rows[] required' }, { status: 400 })
   }
+  // Cap import size so a caller can't fan out 100k writes in one request.
+  if (rows.length > 500) {
+    return NextResponse.json({ error: 'Too many rows (max 500 per import)' }, { status: 400 })
+  }
 
   // Determine required permission based on type
   const permMap: Record<string, string> = {
@@ -41,126 +45,148 @@ export async function POST(req: NextRequest) {
   const results: any[] = []
 
   if (type === 'members') {
-    for (const m of rows) {
-      try {
-        let u = m.email ? await db.user.findUnique({ where: { email: m.email } }) : null
-        if (!u) {
-          u = await db.user.create({
+    // Wrap each entity-type batch in its own transaction so a failure
+    // rolls back the partial batch (no half-imported rosters / events / etc).
+    await db.$transaction(async (tx) => {
+      for (let idx = 0; idx < rows.length; idx++) {
+        const m = rows[idx]
+        try {
+          // Skip rows missing email — synthesizing fake emails (the previous
+          // behavior) pollutes the user table with @import.local garbage
+          // and makes email delivery impossible for those rows.
+          if (!m.email) {
+            errors++
+            results.push({ name: m.name, status: 'error', error: `Row ${idx} skipped: missing email` })
+            continue
+          }
+          let u = await tx.user.findUnique({ where: { email: m.email } })
+          if (!u) {
+            u = await tx.user.create({
+              data: {
+                email: m.email,
+                name: m.name || 'Unknown',
+                role: 'STUDENT',
+                studentId: m.studentId || null,
+                grade: m.grade ? parseInt(m.grade) : null,
+                graduationYear: m.graduationYear ? parseInt(m.graduationYear) : null,
+                house: m.house || null,
+                phone: m.phone || null,
+              }
+            })
+          }
+          const existingMem = await tx.membership.findUnique({
+            where: { userId_clubId: { userId: u.id, clubId } }
+          })
+          if (existingMem) {
+            existing++
+            results.push({ name: m.name, status: 'existing' })
+            continue
+          }
+          await tx.membership.create({
+            data: { userId: u.id, clubId, role: m.role || 'MEMBER' }
+          })
+          created++
+          results.push({ name: m.name, status: 'created' })
+        } catch (e: any) {
+          errors++
+          results.push({ name: m.name, status: 'error', error: `Row ${idx} failed` })
+        }
+      }
+    })
+  } else if (type === 'events') {
+    await db.$transaction(async (tx) => {
+      for (let idx = 0; idx < rows.length; idx++) {
+        const e = rows[idx]
+        try {
+          if (!e.title || !e.startTime) {
+            errors++
+            results.push({ title: e.title, status: 'error', error: 'title and startTime required' })
+            continue
+          }
+          const event = await tx.event.create({
             data: {
-              email: m.email || `unknown_${Date.now()}_${Math.random().toString(36).slice(2)}@import.local`,
-              name: m.name || 'Unknown',
-              role: 'STUDENT',
-              studentId: m.studentId || null,
-              grade: m.grade ? parseInt(m.grade) : null,
-              graduationYear: m.graduationYear ? parseInt(m.graduationYear) : null,
-              house: m.house || null,
-              phone: m.phone || null,
+              clubId,
+              title: e.title,
+              type: (e.type || 'MEETING').toUpperCase(),
+              startTime: new Date(e.startTime),
+              endTime: e.endTime ? new Date(e.endTime) : new Date(new Date(e.startTime).getTime() + 60 * 60 * 1000),
+              location: e.location || null,
+              capacity: e.capacity ? parseInt(e.capacity) : null,
+              isRequired: e.isRequired === true || e.isRequired === 'true',
+              status: 'SCHEDULED',
+              description: e.description || null,
             }
           })
-        }
-        const existingMem = await db.membership.findUnique({
-          where: { userId_clubId: { userId: u.id, clubId } }
-        })
-        if (existingMem) {
-          existing++
-          results.push({ name: m.name, status: 'existing' })
-          continue
-        }
-        await db.membership.create({
-          data: { userId: u.id, clubId, role: m.role || 'MEMBER' }
-        })
-        created++
-        results.push({ name: m.name, status: 'created' })
-      } catch (e: any) {
-        errors++
-        results.push({ name: m.name, status: 'error', error: e.message })
-      }
-    }
-  } else if (type === 'events') {
-    for (const e of rows) {
-      try {
-        if (!e.title || !e.startTime) {
+          created++
+          results.push({ title: e.title, status: 'created', id: event.id })
+        } catch (e: any) {
           errors++
-          results.push({ title: e.title, status: 'error', error: 'title and startTime required' })
-          continue
+          results.push({ title: e.title, status: 'error', error: `Row ${idx} failed` })
         }
-        const event = await db.event.create({
-          data: {
-            clubId,
-            title: e.title,
-            type: (e.type || 'MEETING').toUpperCase(),
-            startTime: new Date(e.startTime),
-            endTime: e.endTime ? new Date(e.endTime) : new Date(new Date(e.startTime).getTime() + 60 * 60 * 1000),
-            location: e.location || null,
-            capacity: e.capacity ? parseInt(e.capacity) : null,
-            isRequired: e.isRequired === true || e.isRequired === 'true',
-            status: 'SCHEDULED',
-            description: e.description || null,
-          }
-        })
-        created++
-        results.push({ title: e.title, status: 'created', id: event.id })
-      } catch (e: any) {
-        errors++
-        results.push({ title: e.title, status: 'error', error: e.message })
       }
-    }
+    })
   } else if (type === 'transactions') {
-    for (const t of rows) {
-      try {
-        if (!t.amount || !t.type) {
-          errors++
-          results.push({ description: t.description, status: 'error', error: 'amount and type required' })
-          continue
-        }
-        await db.transaction.create({
-          data: {
-            clubId,
-            amount: parseFloat(t.amount),
-            type: t.type.toUpperCase(),
-            category: t.category || 'OTHER',
-            description: t.description || null,
-            date: t.date ? new Date(t.date) : new Date(),
-            recordedById: user.id,  // always the signed-in user
+    await db.$transaction(async (tx) => {
+      for (let idx = 0; idx < rows.length; idx++) {
+        const t = rows[idx]
+        try {
+          if (!t.amount || !t.type) {
+            errors++
+            results.push({ description: t.description, status: 'error', error: 'amount and type required' })
+            continue
           }
-        })
-        created++
-        results.push({ description: t.description, status: 'created' })
-      } catch (e: any) {
-        errors++
-        results.push({ description: t.description, status: 'error', error: e.message })
+          await tx.transaction.create({
+            data: {
+              clubId,
+              amount: parseFloat(t.amount),
+              type: t.type.toUpperCase(),
+              category: t.category || 'OTHER',
+              description: t.description || null,
+              date: t.date ? new Date(t.date) : new Date(),
+              recordedById: user.id,  // always the signed-in user
+            }
+          })
+          created++
+          results.push({ description: t.description, status: 'created' })
+        } catch (e: any) {
+          errors++
+          results.push({ description: t.description, status: 'error', error: `Row ${idx} failed` })
+        }
       }
-    }
+    })
   } else if (type === 'inventory') {
-    for (const i of rows) {
-      try {
-        if (!i.name) {
-          errors++
-          results.push({ name: i.name, status: 'error', error: 'name required' })
-          continue
-        }
-        await db.inventoryItem.create({
-          data: {
-            clubId,
-            name: i.name,
-            description: i.description || null,
-            category: i.category || 'equipment',
-            sku: i.sku || null,
-            serialNumber: i.serialNumber || null,
-            quantity: i.quantity ? parseInt(i.quantity) : 1,
-            quantityAvailable: i.quantity ? parseInt(i.quantity) : 1,
-            condition: (i.condition || 'NEW').toUpperCase(),
-            purchasePrice: i.purchasePrice ? parseFloat(i.purchasePrice) : null,
-            location: i.location || null,
+    await db.$transaction(async (tx) => {
+      for (let idx = 0; idx < rows.length; idx++) {
+        const i = rows[idx]
+        try {
+          if (!i.name) {
+            errors++
+            results.push({ name: i.name, status: 'error', error: 'name required' })
+            continue
           }
-        })
-        created++
-        results.push({ name: i.name, status: 'created' })
-      } catch (e: any) {
-        errors++
-        results.push({ name: i.name, status: 'error', error: e.message })
+          await tx.inventoryItem.create({
+            data: {
+              clubId,
+              name: i.name,
+              description: i.description || null,
+              category: i.category || 'equipment',
+              sku: i.sku || null,
+              serialNumber: i.serialNumber || null,
+              quantity: i.quantity ? parseInt(i.quantity) : 1,
+              quantityAvailable: i.quantity ? parseInt(i.quantity) : 1,
+              condition: (i.condition || 'NEW').toUpperCase(),
+              purchasePrice: i.purchasePrice ? parseFloat(i.purchasePrice) : null,
+              location: i.location || null,
+            }
+          })
+          created++
+          results.push({ name: i.name, status: 'created' })
+        } catch (e: any) {
+          errors++
+          results.push({ name: i.name, status: 'error', error: `Row ${idx} failed` })
+        }
       }
-    }
+    })
   }
 
   await db.auditLog.create({
@@ -173,8 +199,9 @@ export async function POST(req: NextRequest) {
     }
   })
 
-  // Fire webhook
-  emitWebhook(clubId, 'form.submitted' as any, {
+  // Fire webhook — 'form.submitted' is already in the WebhookEvent union,
+  // so no `as any` cast is needed.
+  emitWebhook(clubId, 'form.submitted', {
     type: 'bulk_import', entity: type, created, existing, errors,
   }).catch(() => {})
 

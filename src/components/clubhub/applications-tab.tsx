@@ -148,7 +148,10 @@ function ReviewDialog({ appId, clubId, onClose }: any) {
  </div>
  )}
  <div><Label>Review Notes</Label><Textarea rows={2} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Internal notes about this applicant" /></div>
- {app.status === 'REJECTED' || notes.length === 0 ? null : null}
+ <div>
+ <Label>Rejection Reason (shown to applicant when rejecting)</Label>
+ <Textarea rows={2} value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="e.g. Club is at capacity for this term." />
+ </div>
  <div className="flex flex-wrap gap-2 pt-2">
  <Button onClick={() => update('ACCEPTED')} className="bg-foreground hover:bg-foreground"><CheckCircle className="h-4 w-4 mr-1" /> Accept & Add to Club</Button>
  <Button onClick={() => update('WAITLISTED')} variant="outline"><Clock className="h-4 w-4 mr-1" /> Waitlist</Button>

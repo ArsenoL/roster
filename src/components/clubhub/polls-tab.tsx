@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useFetch, apiPost, apiPatch } from '@/lib/clubhub/hooks'
+import { useAuth } from '@/lib/clubhub/use-auth'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -14,7 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Vote, Plus, CheckCircle, BarChart3, Clock, Users } from 'lucide-react'
-import { POLL_TYPES, pollTypeLabel, formatDateTime, timeAgo } from '@/lib/clubhub/types'
+import { POLL_TYPES, pollTypeLabel, formatDateTime, timeAgo, timeUntil } from '@/lib/clubhub/types'
 import { toast } from 'sonner'
 
 export function PollsTab({ clubId }: { clubId: string }) {
@@ -74,8 +75,8 @@ export function PollsTab({ clubId }: { clubId: string }) {
 
 function PollCard({ poll, clubId, onChanged }: any) {
  const [selectedOptions, setSelectedOptions] = useState<string[]>([])
- const { data: membersData } = useFetch<{ members: any[] }>(clubId !== 'ALL' ? `/api/members?clubId=${clubId}` : '/api/members')
- const currentUserId = membersData?.members?.[0]?.userId || ''
+ const { user } = useAuth()
+ const currentUserId = user?.id || ''
 
  const toggleOption = (oid: string) => {
  if (poll.type === 'SINGLE_CHOICE' || poll.type === 'YES_NO') {
@@ -87,6 +88,7 @@ function PollCard({ poll, clubId, onChanged }: any) {
 
  const vote = async () => {
  try {
+ if (!currentUserId) { toast.error('Sign in to vote'); return }
  if (selectedOptions.length === 0) { toast.error('Select an option'); return }
  await apiPost(`/api/polls/${poll.id}`, { userId: currentUserId, optionIds: selectedOptions })
  toast.success('Vote cast!')
@@ -117,10 +119,10 @@ function PollCard({ poll, clubId, onChanged }: any) {
  <div>
  <CardTitle className="text-base flex items-center gap-2">
  {poll.title}
- {poll.isOfficial && <Badge className="bg-foreground text-foreground">Official</Badge>}
+ {poll.isOfficial && <Badge className="bg-blue-100 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300">Official</Badge>}
  </CardTitle>
  <CardDescription className="mt-1">
- {pollTypeLabel(poll.type)} · ends {formatDateTime(poll.endDate)} ({timeAgo(poll.endDate)})
+ {pollTypeLabel(poll.type)} · ends {formatDateTime(poll.endDate)} ({new Date(poll.endDate) > new Date() ? timeUntil(poll.endDate) : timeAgo(poll.endDate)})
  <br />{totalVotes} vote{totalVotes !== 1 ? 's' : ''} · {poll.allowAnonymous ? 'Anonymous' : 'Identified'}
  </CardDescription>
  </div>
@@ -152,7 +154,7 @@ function PollCard({ poll, clubId, onChanged }: any) {
  </div>
  {showResults && (
  <div className="h-1.5 bg-muted rounded-full overflow-hidden">
- <div className="h-full bg-muted from-primary to-primary/60" style={{ width: `${share}%` }} />
+ <div className="h-full bg-gradient-to-r from-primary to-primary/60" style={{ width: `${share}%` }} />
  </div>
  )}
  </button>

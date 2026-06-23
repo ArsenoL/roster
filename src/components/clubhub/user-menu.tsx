@@ -26,8 +26,16 @@ export function UserMenu() {
  function onClick(e: MouseEvent) {
  if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
  }
+ function onKey(e: KeyboardEvent) {
+ // Escape closes the menu — standard dropdown behaviour for keyboard users.
+ if (e.key === 'Escape') setOpen(false)
+ }
  document.addEventListener('mousedown', onClick)
- return () => document.removeEventListener('mousedown', onClick)
+ document.addEventListener('keydown', onKey)
+ return () => {
+ document.removeEventListener('mousedown', onClick)
+ document.removeEventListener('keydown', onKey)
+ }
  }, [])
 
  if (loading) {
@@ -69,6 +77,9 @@ export function UserMenu() {
  <div className="relative" ref={ref}>
  <button
  onClick={() => setOpen(!open)}
+ aria-expanded={open}
+ aria-haspopup="menu"
+ aria-label="User menu"
  className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-accent transition-colors"
  >
  <Avatar className="h-8 w-8" style={{ backgroundColor: avatarColor(user.name) }}>

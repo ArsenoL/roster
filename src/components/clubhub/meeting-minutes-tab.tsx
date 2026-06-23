@@ -42,7 +42,7 @@ export function MeetingMinutesTab({ clubId }: { clubId: string }) {
  ) : (
  <div className="space-y-2">
  {minutes.map((m) => (
- <Card key={m.id} className="hover: transition-shadow cursor-pointer" onClick={() => setEditing(m)}>
+ <Card key={m.id} className="hover:transition-shadow cursor-pointer" onClick={() => setEditing(m)}>
  <CardContent className="p-4">
  <div className="flex items-start justify-between gap-3 flex-wrap">
  <div className="flex-1 min-w-[200px]">

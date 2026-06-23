@@ -36,6 +36,7 @@ export async function GET() {
     pendingRsvps,
     volunteerHours,
     transactions,
+    statusBreakdownRows,
   ] = await Promise.all([
     // All active memberships
     db.membership.findMany({
@@ -53,7 +54,9 @@ export async function GET() {
       },
     }),
 
-    // All attendance records for this user (across all clubs)
+    // All attendance records for this user (across all clubs). Capped at
+    // 200 to bound response size — the previous 500-row fetch was overkill
+    // for the dashboard surface.
     db.attendance.findMany({
       where: { userId: user.id },
       include: {
@@ -65,7 +68,7 @@ export async function GET() {
         },
       },
       orderBy: { event: { startTime: 'desc' } },
-      take: 500,
+      take: 200,
     }),
 
     // Upcoming events across all the user's clubs
@@ -148,6 +151,15 @@ export async function GET() {
       orderBy: { date: 'desc' },
       take: 10,
     }),
+
+    // Single groupBy query for the status breakdown — replaces the
+    // multiple JS iterations over attendanceRows that the previous code
+    // used to compute the same map.
+    db.attendance.groupBy({
+      by: ['status'],
+      where: { userId: user.id },
+      _count: { status: true },
+    }),
   ])
 
   // ─── Compute aggregate stats ──────────────────────────────────────────
@@ -168,10 +180,11 @@ export async function GET() {
   }
   Object.values(perClub).forEach(c => { c.rate = c.total > 0 ? Math.round((c.attended / c.total) * 1000) / 10 : 0 })
 
-  // Status breakdown
+  // Status breakdown — sourced from the dedicated groupBy query instead of
+  // an in-JS fold over attendanceRows.
   const statusBreakdown: Record<string, number> = {}
-  for (const a of attendanceRows) {
-    statusBreakdown[a.status] = (statusBreakdown[a.status] || 0) + 1
+  for (const row of statusBreakdownRows) {
+    statusBreakdown[row.status] = row._count.status
   }
 
   // Streak: count back from most recent attended event until a gap (no attendance for >= 21 days between events)

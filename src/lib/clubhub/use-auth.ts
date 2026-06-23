@@ -98,6 +98,11 @@ export function useAuth() {
           // else: server says null but we have a cached user. Keep the
           // cached user — the global 401 handler will sort it out if the
           // session is actually gone.
+        } else if (res.status === 401) {
+          cachedUser = null
+          cachedUserAt = 0
+          setUser(null)
+          emit()
         }
       } catch (e) {
         // Network error — leave cachedUser as-is. The user might be on a

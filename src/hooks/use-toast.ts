@@ -182,7 +182,11 @@ function useToast() {
         listeners.splice(index, 1)
       }
     }
-  }, [state])
+    // Empty-deps: we only want to subscribe/unsubscribe ONCE per mount.
+    // The previous `[state]` dep re-ran this effect on every state change,
+    // which churned the listeners array (push then splice) for no reason
+    // and could briefly drop a listener during a rapid burst of toasts.
+  }, [])
 
   return {
     ...state,

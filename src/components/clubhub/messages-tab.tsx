@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useFetch, apiPost } from '@/lib/clubhub/hooks'
+import { useAuth } from '@/lib/clubhub/use-auth'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,17 +15,17 @@ import { Send, Plus, MessageSquare, ArrowLeft } from 'lucide-react'
 import { avatarColor, initials, timeAgo } from '@/lib/clubhub/types'
 import { toast } from 'sonner'
 
-// Use a"current user" — for demo, take the first member of the selected club
-function useCurrentUser(clubId: string) {
- const url = clubId !== 'ALL' ? `/api/members?clubId=${clubId}&limit=1` : '/api/members?limit=1'
- const { data } = useFetch<{ members: any[] }>(url)
- return data?.members?.[0]
+// Use the signed-in user as the "current user" — never impersonate another
+// member by reading the first row of /api/members.
+function useCurrentUser() {
+ const { user, loading } = useAuth()
+ return { user, loading }
 }
 
 export function MessagesTab({ clubId }: { clubId: string }) {
- const me = useCurrentUser(clubId)
- const url = me ? `/api/messages/conversations?userId=${me.userId}` : ''
- const { data, loading, refetch } = useFetch<{ conversations: any[] }>(url)
+ const { user: me, loading } = useCurrentUser()
+ const url = me ? `/api/messages/conversations?userId=${me.id}` : ''
+ const { data, refetch } = useFetch<{ conversations: any[] }>(url)
  const [activeConv, setActiveConv] = useState<string | null>(null)
  const [newConvOpen, setNewConvOpen] = useState(false)
 
@@ -35,7 +36,7 @@ export function MessagesTab({ clubId }: { clubId: string }) {
  }
 
  if (activeConv) {
- return <ConversationView conversationId={activeConv} userId={me.userId} onBack={() => { setActiveConv(null); refetch() }} />
+ return <ConversationView conversationId={activeConv} userId={me.id} onBack={() => { setActiveConv(null); refetch() }} />
  }
 
  return (
@@ -45,7 +46,7 @@ export function MessagesTab({ clubId }: { clubId: string }) {
  <h2 className="text-lg font-semibold">Messages</h2>
  <p className="text-sm text-muted-foreground">Direct messages and group chats within {clubId === 'ALL' ? 'all clubs' : 'this club'}.</p>
  </div>
- <Button onClick={() => setNewConvOpen(true)}><Plus className="h-4 w-4" /> New chat</Button>
+ <Button onClick={() => setNewConvOpen(true)} disabled={!me}><Plus className="h-4 w-4" /> New chat</Button>
  </div>
 
  {conversations.length === 0 ? (
@@ -56,21 +57,21 @@ export function MessagesTab({ clubId }: { clubId: string }) {
  ) : (
  <div className="space-y-2">
  {conversations.map((c) => (
- <Card key={c.id} className="hover: transition-shadow cursor-pointer" onClick={() => setActiveConv(c.id)}>
+ <Card key={c.id} className="hover:transition-shadow cursor-pointer" onClick={() => setActiveConv(c.id)}>
  <CardContent className="p-3 flex items-center gap-3">
- <Avatar className="h-10 w-10" style={{ backgroundColor: avatarColor(c.participants.filter((p: any) => p.userId !== me.userId).map((p: any) => p.user.name).join(', ') || 'C') }}>
+ <Avatar className="h-10 w-10" style={{ backgroundColor: avatarColor(c.participants.filter((p: any) => p.userId !== me.id).map((p: any) => p.user.name).join(', ') || 'C') }}>
  <AvatarFallback className="text-white text-xs">
  {c.type === 'DIRECT'
- ? initials(c.participants.filter((p: any) => p.userId !== me.userId).map((p: any) => p.user.name)[0] || '?')
+ ? initials(c.participants.filter((p: any) => p.userId !== me.id).map((p: any) => p.user.name)[0] || '?')
  : <MessageSquare className="h-4 w-4" />}
  </AvatarFallback>
  </Avatar>
  <div className="flex-1 min-w-0">
  <div className="flex items-center justify-between">
  <div className="font-medium truncate">
- {c.title || c.participants.filter((p: any) => p.userId !== me.userId).map((p: any) => p.user.name).join(', ')}
+ {c.title || c.participants.filter((p: any) => p.userId !== me.id).map((p: any) => p.user.name).join(', ')}
  </div>
- {c.unreadCount > 0 && <span className="bg-foreground text-white text-xs px-2 py-0.5 rounded-full">{c.unreadCount}</span>}
+ {c.unreadCount > 0 && <span className="bg-primary text-primary-foreground text-xs px-2 py-0.5 rounded-full">{c.unreadCount}</span>}
  </div>
  {c.lastMessage && (
  <div className="text-xs text-muted-foreground truncate">
@@ -88,7 +89,7 @@ export function MessagesTab({ clubId }: { clubId: string }) {
  open={newConvOpen}
  onOpenChange={setNewConvOpen}
  clubId={clubId}
- currentUserId={me.userId}
+ currentUserId={me.id}
  onCreated={(id) => { setNewConvOpen(false); setActiveConv(id); refetch(); }}
  />
  </div>
@@ -147,7 +148,7 @@ function ConversationView({ conversationId, userId, onBack }: { conversationId: 
  <AvatarFallback className="text-white text-[10px]">{initials(m.sender?.name || '?')}</AvatarFallback>
  </Avatar>
  <div className={`max-w-[70%] ${isMe ? 'items-end' : 'items-start'} flex flex-col`}>
- <div className={`px-3 py-2 rounded-lg ${isMe ? 'bg-foreground text-white' : 'bg-muted'}`}>
+ <div className={`px-3 py-2 rounded-lg ${isMe ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
  <div className="text-sm whitespace-pre-wrap">{m.body}</div>
  </div>
  <div className="text-[10px] text-muted-foreground mt-0.5">{m.sender?.name} · {timeAgo(m.createdAt)}</div>

@@ -374,6 +374,7 @@ function EventCheckInStats({ eventId }: { eventId: string }) {
 function ManualMarking({ clubId }: { clubId: string }) {
  const [selectedEventId, setSelectedEventId] = useState<string>('')
  const [search, setSearch] = useState('')
+ const [submittingId, setSubmittingId] = useState<string | null>(null)
 
  const eventsUrl = useMemo(() => {
  const now = Date.now()
@@ -390,11 +391,15 @@ function ManualMarking({ clubId }: { clubId: string }) {
  )
 
  const updateStatus = async (userId: string, status: string) => {
+ if (submittingId) return // prevent double-fire races
+ setSubmittingId(userId)
  try {
  await apiPost('/api/attendance', { eventId: selectedEventId, userId, status, method: 'ADVISOR_MARK' })
- refetch()
+ await refetch()
  } catch (e: any) {
- toast.error(e.message)
+ if (!e?.silent) toast.error(e.message)
+ } finally {
+ setSubmittingId(null)
  }
  }
 
@@ -474,7 +479,8 @@ function ManualMarking({ clubId }: { clubId: string }) {
  <button
  key={s.value}
  onClick={() => updateStatus(a.userId, s.value)}
- className={`px-2 py-1 rounded text-xs border transition-colors ${
+ disabled={submittingId === a.userId}
+ className={`px-2 py-1 rounded text-xs border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
  a.status === s.value
  ? 'bg-foreground text-background border-foreground'
  : 'hover:bg-accent border-input'

@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { useFetch, apiPost, apiDelete } from '@/lib/clubhub/hooks'
+import { useState, useEffect } from 'react'
+import { useFetch, apiPost, apiPatch, apiDelete } from '@/lib/clubhub/hooks'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -60,24 +60,22 @@ function GeneralSettings({ clubId }: { clubId: string }) {
  const { data, loading, refetch } = useFetch<{ settings: any }>(`/api/settings?clubId=${clubId}`)
  const [form, setForm] = useState<any>(null)
 
- // Sync form to data when loaded
- if (data && !form) {
- setTimeout(() => setForm(data.settings), 0)
- }
+ // Sync form to data when it loads (and if it ever changes).
+ // Previously this used a render-phase `setTimeout(() => setForm(...), 0)`
+ // which fired on every render while data was set and form was null —
+ // and never refired if settings were refetched.
+ useEffect(() => {
+ // eslint-disable-next-line react-hooks/set-state-in-effect
+ if (data?.settings) setForm(data.settings)
+ }, [data?.settings])
 
  const update = async (updates: any) => {
  try {
- const r = await fetch('/api/settings', {
- method: 'PATCH',
- headers: { 'Content-Type': 'application/json' },
- body: JSON.stringify({ clubId, ...updates })
- })
- if (!r.ok) throw new Error('Failed')
- const { settings } = await r.json()
+ const { settings } = await apiPatch('/api/settings', { clubId, ...updates })
  setForm(settings)
  toast.success('Settings saved')
  refetch()
- } catch (e: any) { toast.error(e.message) }
+ } catch (e: any) { if (!e?.silent) toast.error(e.message) }
  }
 
  if (loading || !form) return <Skeleton className="h-96 w-full" />
@@ -208,21 +206,11 @@ function ModulesSettings({ clubId }: { clubId: string }) {
     else next.add(id)
     setSaving(true)
     try {
-      const res = await fetch(`/api/clubs/${clubId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ modules: Array.from(next) }),
-      })
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}))
-        toast.error(j?.error ?? 'Could not update modules.')
-        setSaving(false)
-        return
-      }
+      await apiPatch(`/api/clubs/${clubId}`, { modules: Array.from(next) })
       toast.success(next.has(id) ? `Enabled ${id}.` : `Disabled ${id}.`)
       refetch()
     } catch (e: any) {
-      toast.error(e?.message ?? 'Could not update modules.')
+      if (!e?.silent) toast.error(e?.message ?? 'Could not update modules.')
     } finally {
       setSaving(false)
     }
@@ -312,21 +300,18 @@ function ModulesSettings({ clubId }: { clubId: string }) {
 function AttendanceSettings({ clubId }: { clubId: string }) {
  const { data, loading, refetch } = useFetch<{ settings: any }>(`/api/settings?clubId=${clubId}`)
  const [form, setForm] = useState<any>(null)
- if (data && !form) setTimeout(() => setForm(data.settings), 0)
+ useEffect(() => {
+ // eslint-disable-next-line react-hooks/set-state-in-effect
+ if (data?.settings) setForm(data.settings)
+ }, [data?.settings])
 
  const update = async (updates: any) => {
  try {
- const r = await fetch('/api/settings', {
- method: 'PATCH',
- headers: { 'Content-Type': 'application/json' },
- body: JSON.stringify({ clubId, ...updates })
- })
- if (!r.ok) throw new Error('Failed')
- const { settings } = await r.json()
+ const { settings } = await apiPatch('/api/settings', { clubId, ...updates })
  setForm(settings)
  toast.success('Settings saved')
  refetch()
- } catch (e: any) { toast.error(e.message) }
+ } catch (e: any) { if (!e?.silent) toast.error(e.message) }
  }
 
  if (loading || !form) return <Skeleton className="h-96 w-full" />
@@ -444,7 +429,15 @@ function CustomFieldsManager({ clubId }: { clubId: string }) {
  </div>
  <div className="text-xs text-muted-foreground">
  {f.name} · {f.type.replace(/_/g, ' ').toLowerCase()}
- {f.options && ` · ${JSON.parse(f.options).length} options`}
+ {(() => {
+ try {
+ if (!f.options) return ''
+ const parsed = JSON.parse(f.options)
+ return ` · ${Array.isArray(parsed) ? parsed.length : 0} options`
+ } catch {
+ return ''
+ }
+ })()}
  </div>
  </div>
  <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setEditField(f)}>
@@ -491,18 +484,25 @@ function CustomFieldDialog({ open, onOpenChange, clubId, field, onSaved }: {
  field?: CustomField | null
  onSaved: () => void
 }) {
+ const initialForm = {
+ name: '', label: '', type: 'TEXT', options: '', required: false, description: '',
+ sortOrder: 0, isVisible: true, isEditable: true, appliesTo: 'member'
+ }
  const [form, setForm] = useState<any>(field ? {
  ...field,
  options: field.options ? JSON.parse(field.options).join(', ') : ''
- } : {
- name: '', label: '', type: 'TEXT', options: '', required: false, description: '',
- sortOrder: 0, isVisible: true, isEditable: true, appliesTo: 'member'
- })
+ } : { ...initialForm })
 
- // Reset when field changes
- useState(() => {
- if (field) setForm({ ...field, options: field.options ? JSON.parse(field.options).join(', ') : '' })
- })
+ // Reset when the `field` prop changes (e.g. opening the edit dialog for
+ // a different field). The original code used `useState(() => …)`, a lazy
+ // initializer that only fires once on mount — so the dialog never
+ // re-populated when the field prop changed.
+ useEffect(() => {
+ if (field) {
+ // eslint-disable-next-line react-hooks/set-state-in-effect
+ setForm({ ...field, options: field.options ? JSON.parse(field.options).join(', ') : '' })
+ }
+ }, [field])
 
  const handleSave = async () => {
  if (!form.name || !form.label) {
@@ -517,19 +517,14 @@ function CustomFieldDialog({ open, onOpenChange, clubId, field, onSaved }: {
  try {
  if (field) {
  payload.id = field.id
- const r = await fetch('/api/custom-fields', {
- method: 'PATCH',
- headers: { 'Content-Type': 'application/json' },
- body: JSON.stringify(payload)
- })
- if (!r.ok) throw new Error('Failed')
+ await apiPatch('/api/custom-fields', payload)
  toast.success('Field updated')
  } else {
  await apiPost('/api/custom-fields', payload)
  toast.success('Field created')
  }
  onSaved()
- } catch (e: any) { toast.error(e.message) }
+ } catch (e: any) { if (!e?.silent) toast.error(e.message) }
  }
 
  return (

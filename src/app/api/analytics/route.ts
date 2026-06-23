@@ -54,7 +54,18 @@ export async function GET(req: NextRequest) {
       db.membership.count({ where: isAdmin ? { status: 'ACTIVE' } : { status: 'ACTIVE', clubId: { in: readableClubIds.length > 0 ? readableClubIds : ['__none__'] } } }),
       db.event.count({ where: eventWhere }),
       db.attendance.count({ where: { event: eventWhere } }),
-      db.user.count({ where: { role: 'STUDENT' } }),
+      // Scope totalUsers to users with an ACTIVE membership in at least one
+      // of the caller's readable clubs. The previous unscoped count leaked
+      // every student in the system to any signed-in user. Admins (who can
+      // read every club) bypass the membership filter.
+      db.user.count({
+        where: {
+          role: 'STUDENT',
+          ...(isAdmin
+            ? {}
+            : { memberships: { some: { status: 'ACTIVE', clubId: { in: readableClubIds.length > 0 ? readableClubIds : ['__none__'] } } } }),
+        }
+      }),
     ])
 
     const statusBreakdown = await db.attendance.groupBy({

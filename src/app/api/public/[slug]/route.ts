@@ -8,7 +8,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
   const club = await db.club.findUnique({
     where: { slug },
     include: {
-      advisor: { select: { name: true, email: true } },
+      // Don't leak the advisor's email to anonymous public-portal viewers —
+      // only expose their name. Internal/authenticated routes can include
+      // email if needed.
+      advisor: { select: { name: true } },
       president: { select: { name: true } },
       _count: { select: { members: true, events: true } },
       settings: true,

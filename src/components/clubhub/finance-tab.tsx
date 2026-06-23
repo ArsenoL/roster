@@ -151,7 +151,7 @@ export function FinanceTab({ clubId }: { clubId: string }) {
  <div className="text-muted-foreground">{formatCurrency(b.spent)} / {formatCurrency(b.allocated)}</div>
  </div>
  <div className="h-2 bg-muted rounded-full overflow-hidden">
- <div className={`h-full ${pct > 90 ? 'bg-foreground' : pct > 75 ? 'bg-foreground' : 'bg-foreground'}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+ <div className={`h-full ${pct > 90 ? 'bg-red-500' : pct > 75 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(pct, 100)}%` }} />
  </div>
  </div>
  )

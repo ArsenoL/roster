@@ -33,23 +33,46 @@ export function CommandPalette() {
  const [open, setOpen] = useState(false)
  const { dark, toggle: toggleDark } = useDarkMode()
 
- // Listen for Cmd+K (Mac) / Ctrl+K (Windows/Linux)
- useEffect(() => {
- const down = (e: KeyboardEvent) => {
- if ((e.key === 'k' || e.key === 'K') && (e.metaKey || e.ctrlKey)) {
- e.preventDefault()
- setOpen(o => !o)
- }
- }
- document.addEventListener('keydown', down)
- return () => document.removeEventListener('keydown', down)
- }, [])
-
-
  const navigate = (path: string) => {
  setOpen(false)
  router.push(path)
  }
+
+ // Listen for Cmd+K (Mac) / Ctrl+K (Windows/Linux) to open the palette,
+ // Cmd+H to jump Home, Cmd+D to jump to the role-aware dashboard.
+ useEffect(() => {
+ const down = (e: KeyboardEvent) => {
+ if (e.metaKey || e.ctrlKey) {
+ if (e.key === 'k' || e.key === 'K') {
+ e.preventDefault()
+ setOpen(o => !o)
+ return
+ }
+ if (e.key === 'h' || e.key === 'H') {
+ // ⌘H — Home. Don't preventDefault on Mac (hides the app) is acceptable
+ // here because we explicitly want the in-app shortcut.
+ e.preventDefault()
+ navigate('/')
+ return
+ }
+ if (e.key === 'd' || e.key === 'D') {
+ // ⌘D — role-aware dashboard.
+ e.preventDefault()
+ if (user) {
+ navigate(user.role === 'STUDENT' ? '/app/me' : user.role === 'PARENT' ? '/app/parent' : '/app')
+ } else {
+ navigate('/login')
+ }
+ return
+ }
+ }
+ }
+ document.addEventListener('keydown', down)
+ return () => document.removeEventListener('keydown', down)
+ // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [user])
+
+
 
  // Build the command list based on whether user is signed in + role
  const items: CommandItemDef[] = useMemo(() => {

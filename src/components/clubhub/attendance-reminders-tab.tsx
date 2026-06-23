@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Bell, BellRing, Trash2, Clock, Calendar, Zap } from 'lucide-react'
+import { Bell, BellRing, Trash2, Clock, Calendar } from 'lucide-react'
 import { toast } from 'sonner'
 
 export function AttendanceRemindersTab({ clubId }: { clubId: string }) {
@@ -25,17 +25,13 @@ export function AttendanceRemindersTab({ clubId }: { clubId: string }) {
  await apiDelete(`/api/attendance-reminders?id=${id}`)
  refetch()
  toast.success('Reminder deleted')
- } catch (e: any) { toast.error(e.message) }
+ } catch (e: any) { if (!e?.silent) toast.error(e.message) }
  }
 
- async function triggerCron() {
- try {
- const res = await fetch('/api/cron/reminder-sender', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
- const d = await res.json()
- toast.success(`Processed ${d.processed} reminders, sent ${d.sent}`)
- refetch()
- } catch (e: any) { toast.error(e.message) }
- }
+ // Note: the reminder-sender cron endpoint is intentionally NOT exposed
+ // to the browser — it must only be triggered by the server scheduler
+ // (Vercel Cron / system cron). A client-side "run now" button would let
+ // any signed-in user spam the entire club's reminders on demand.
 
  return (
  <div className="space-y-4">
@@ -45,9 +41,6 @@ export function AttendanceRemindersTab({ clubId }: { clubId: string }) {
  <p className="text-sm text-muted-foreground">Schedule pre-event, day-of, and post-event absence reminders.</p>
  </div>
  <div className="flex gap-2">
- <Button variant="outline" onClick={triggerCron}>
- <Zap className="h-4 w-4 mr-1" /> Run sender now
- </Button>
  <Button onClick={() => setBulkOpen(true)} disabled={clubId === 'ALL'}>
  <BellRing className="h-4 w-4 mr-1" /> Bulk create
  </Button>
@@ -91,9 +84,9 @@ export function AttendanceRemindersTab({ clubId }: { clubId: string }) {
  <Calendar className="h-3 w-3" /> {new Date(r.scheduledFor).toLocaleString()}
  </div>
  {r.sentAt ? (
- <Badge className="bg-foreground text-[10px]">SENT</Badge>
+ <Badge className="bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 text-[10px]">SENT</Badge>
  ) : (
- <Badge variant="outline" className="text-[10px] text-foreground">PENDING</Badge>
+ <Badge variant="outline" className="text-[10px] text-amber-700 dark:text-amber-300">PENDING</Badge>
  )}
  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => deleteReminder(r.id)}>
  <Trash2 className="h-3.5 w-3.5" />

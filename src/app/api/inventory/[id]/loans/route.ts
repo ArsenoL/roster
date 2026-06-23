@@ -37,27 +37,55 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!item.isLoanable) return NextResponse.json({ error: 'Item not loanable' }, { status: 400 })
 
   const body = await req.json()
+
+  // Validate loanDays — positive integer ≤ 90 (default 7).
+  let loanDays: number
+  if (body.loanDays === undefined || body.loanDays === null) {
+    loanDays = item.loanPeriodDays || 7
+  } else {
+    const n = Number(body.loanDays)
+    if (!Number.isInteger(n) || n <= 0 || n > 90) {
+      return NextResponse.json({ error: 'loanDays must be a positive integer ≤ 90' }, { status: 400 })
+    }
+    loanDays = n
+  }
+
   const checkoutDate = new Date()
   const dueDate = new Date(checkoutDate)
-  dueDate.setDate(dueDate.getDate() + (body.loanDays || item.loanPeriodDays))
+  dueDate.setDate(dueDate.getDate() + loanDays)
 
-  const loan = await db.inventoryLoan.create({
-    data: {
-      itemId: id,
-      userId: user.id,  // always the signed-in user
-      checkoutDate,
-      dueDate,
-      conditionAtCheckout: item.condition,
-      depositCollected: body.depositCollected ?? item.depositAmount,
-      notes: body.notes || null,
-      status: 'OUT',
-    },
+  // Atomic checkout: the availability check + loan create + item decrement
+  // must all happen in one transaction so two concurrent checkouts can't
+  // both pass the `quantityAvailable > 0` gate and oversell the last item.
+  // The conditional updateMany (`quantityAvailable: { gte: 1 }`) is the
+  // actual race arbiter — if it returns count 0, someone else got there first.
+  const result = await db.$transaction(async (tx) => {
+    const decremented = await tx.inventoryItem.updateMany({
+      where: { id, quantityAvailable: { gte: 1 } },
+      data: { quantityAvailable: { decrement: 1 } },
+    })
+    if (decremented.count === 0) {
+      return { kind: 'oos' as const }
+    }
+
+    const loan = await tx.inventoryLoan.create({
+      data: {
+        itemId: id,
+        userId: user.id,  // always the signed-in user
+        checkoutDate,
+        dueDate,
+        conditionAtCheckout: item.condition,
+        depositCollected: body.depositCollected ?? item.depositAmount,
+        notes: body.notes || null,
+        status: 'OUT',
+      },
+    })
+    return { kind: 'ok' as const, loan }
   })
 
-  await db.inventoryItem.update({
-    where: { id },
-    data: { quantityAvailable: { decrement: 1 } },
-  })
+  if (result.kind === 'oos') {
+    return NextResponse.json({ error: 'out of stock' }, { status: 409 })
+  }
 
-  return NextResponse.json(loan)
+  return NextResponse.json(result.loan)
 }

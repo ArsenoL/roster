@@ -58,8 +58,11 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const loan = await db.inventoryLoan.update({
-    where: { id: loanId },
+  // Guard against double-return: only OUT loans can be returned. Using
+  // updateMany with a `status: 'OUT'` filter makes the transition atomic —
+  // two concurrent PATCH calls can't both succeed on the same loan.
+  const updateResult = await db.inventoryLoan.updateMany({
+    where: { id: loanId, status: 'OUT' },
     data: {
       returnedDate: new Date(),
       conditionAtReturn: conditionAtReturn || null,
@@ -68,18 +71,28 @@ export async function PATCH(req: NextRequest) {
       status: conditionAtReturn === 'BROKEN' || conditionAtReturn === 'LOST' ? conditionAtReturn : 'RETURNED',
     },
   })
-
-  await db.inventoryItem.update({
-    where: { id: loan.itemId },
-    data: { quantityAvailable: { increment: 1 } },
-  })
-
-  if (conditionAtReturn === 'BROKEN' || conditionAtReturn === 'LOST') {
-    await db.inventoryItem.update({
-      where: { id: loan.itemId },
-      data: { condition: conditionAtReturn, quantity: { decrement: 1 } },
-    })
+  if (updateResult.count === 0) {
+    return NextResponse.json({ error: 'already returned' }, { status: 409 })
   }
+
+  // Refetch the updated loan for the response.
+  const loan = await db.inventoryLoan.findUnique({ where: { id: loanId } })
+
+  // Restore availability + handle broken/lost atomically. Both item updates
+  // run in one transaction so a crash between them can't leave the inventory
+  // count in an inconsistent state.
+  await db.$transaction(async (tx) => {
+    await tx.inventoryItem.update({
+      where: { id: loan!.itemId },
+      data: { quantityAvailable: { increment: 1 } },
+    })
+    if (conditionAtReturn === 'BROKEN' || conditionAtReturn === 'LOST') {
+      await tx.inventoryItem.update({
+        where: { id: loan!.itemId },
+        data: { condition: conditionAtReturn, quantity: { decrement: 1 } },
+      })
+    }
+  })
 
   return NextResponse.json(loan)
 }

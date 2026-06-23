@@ -41,8 +41,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   // Remove existing votes by this user (allows revoting) — always use the
   // signed-in user's ID, never trust body.userId.
-  await db.pollVote.deleteMany({ where: { pollId: id, userId: user.id } })
-
   const body = await req.json()
   const optionIds = body.optionIds || (body.rankings || []).map((r: any) => r.optionId)
   if (optionIds.length === 0) return NextResponse.json({ error: 'No option selected' }, { status: 400 })
@@ -51,12 +49,28 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: 'Single choice only' }, { status: 400 })
   }
 
-  const votes = await Promise.all(optionIds.map(async (oid: string) => {
-    const rank = body.rankings ? body.rankings.find((r: any) => r.optionId === oid)?.rank || 0 : 0
-    return db.pollVote.create({
-      data: { pollId: id, optionId: oid, userId: user.id, rank },
-    })
-  }))
+  // Cross-poll IDOR guard: every optionId must belong to this poll. Without
+  // this check a caller could pass optionIds from a different poll and have
+  // their vote counted here.
+  const validOptionIds = new Set(poll.options.map((o) => o.id))
+  for (const oid of optionIds) {
+    if (!validOptionIds.has(oid)) {
+      return NextResponse.json({ error: 'Invalid optionId' }, { status: 400 })
+    }
+  }
+
+  // Race-safe revote: delete existing votes + create new ones atomically so
+  // a crash between them can't leave the user with both old and new votes
+  // (which would let a SINGLE_CHOICE poll count them twice).
+  const votes = await db.$transaction(async (tx) => {
+    await tx.pollVote.deleteMany({ where: { pollId: id, userId: user.id } })
+    return Promise.all(optionIds.map(async (oid: string) => {
+      const rank = body.rankings ? body.rankings.find((r: any) => r.optionId === oid)?.rank || 0 : 0
+      return tx.pollVote.create({
+        data: { pollId: id, optionId: oid, userId: user.id, rank },
+      })
+    }))
+  })
 
   return NextResponse.json({ votes })
 }

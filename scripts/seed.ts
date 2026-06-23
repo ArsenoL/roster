@@ -1,8 +1,15 @@
 // Seed ClubHub with rich demo data
 // Run: bun run /home/z/my-project/scripts/seed.ts
+//
+// Dev credentials created by this script (DEV ONLY — do not deploy to prod):
+//   SUPER_ADMIN:  superadmin@roster.local  /  roster-dev-super-123
+//   SCHOOL_ADMIN: principal@school.edu       /  roster-dev-admin-123
+//   ADVISOR:      <advisor emails below>    /  roster-dev-admin-123
+//   Students + parents: no password (cookie/session login not supported for them in dev).
 
 import { db } from '../src/lib/db'
 import { PrismaClient } from '@prisma/client'
+import { hashPassword } from '../src/lib/clubhub/auth'
 
 const FIRST_NAMES = [
   'Aiden','Aisha','Alex','Amara','Anthony','Aria','Asher','Ava','Axel','Bella',
@@ -73,6 +80,22 @@ async function main() {
   console.log('Cleared.')
 
   // -----------------------------------------------------
+  // 0) SUPER_ADMIN bootstrap user (created FIRST so audit logs etc. can
+  //    reference it). Has a known dev password so you can log in and
+  //    impersonate any club without needing to seed an officer account.
+  // -----------------------------------------------------
+  const superAdmin = await db.user.create({
+    data: {
+      name: 'Roster Super Admin',
+      email: 'superadmin@roster.local',
+      role: 'SUPER_ADMIN',
+      passwordHash: await hashPassword('roster-dev-super-123'),
+      house: 'Administration',
+    },
+  })
+  console.log(`Created SUPER_ADMIN bootstrap user: ${superAdmin.email}`)
+
+  // -----------------------------------------------------
   // 1) FACULTY ADVISORS
   // -----------------------------------------------------
   const advisors: Awaited<ReturnType<typeof db.user.create>>[] = []
@@ -83,9 +106,10 @@ async function main() {
     { name: 'Mrs. Anne Thompson', email: 'a.thompson@school.edu', dept: 'English' },
     { name: 'Mr. David Kim', email: 'd.kim@school.edu', dept: 'STEM' },
   ]
+  const advisorPasswordHash = await hashPassword('roster-dev-admin-123')
   for (const a of advisorNames) {
     advisors.push(await db.user.create({
-      data: { name: a.name, email: a.email, role: 'ADVISOR', house: a.dept }
+      data: { name: a.name, email: a.email, role: 'ADVISOR', house: a.dept, passwordHash: advisorPasswordHash }
     }))
   }
 
@@ -110,7 +134,7 @@ async function main() {
         grade,
         graduationYear: gradYearFor(grade),
         house: randomItem(['Athena', 'Apollo', 'Hermes', 'Artemis', 'Poseidon', 'Hera']),
-        phone: `+1${randomInt(200, 999)}${randomInt(200, 999)}${String(randomInt(0, 9999)).padStart(4, '0')}`,
+        phone: `+1555${randomInt(1000000, 9999999)}`,
         pronouns: randomItem(['she/her', 'he/him', 'they/them', 'she/her', 'he/him']),
       }
     }))
@@ -123,6 +147,7 @@ async function main() {
       email: 'principal@school.edu',
       role: 'SCHOOL_ADMIN',
       house: 'Administration',
+      passwordHash: await hashPassword('roster-dev-admin-123'),
     }
   })
 

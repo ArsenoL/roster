@@ -61,7 +61,7 @@ export function GamificationTab({ clubId }: { clubId: string }) {
  <div className={`flex items-center justify-center w-9 h-9 rounded-full text-sm font-bold shrink-0 ${
  i === 0 ? 'bg-yellow-400 text-white' :
  i === 1 ? 'bg-slate-300 text-white' :
- i === 2 ? 'bg-foreground text-white' :
+ i === 2 ? 'bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300' :
  'bg-muted text-muted-foreground'
  }`}>
  {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
@@ -166,6 +166,7 @@ export function GamificationTab({ clubId }: { clubId: string }) {
 
  <AwardBadgeDialog
  badgeId={awardBadgeId}
+ clubId={clubId}
  onOpenChange={(o) => !o && setAwardBadgeId(null)}
  onAwarded={() => { refetchBadges(); setAwardBadgeId(null) }}
  />
@@ -302,19 +303,25 @@ function CreateBadgeDialog({ open, onOpenChange, clubId, onCreated }: {
  )
 }
 
-function AwardBadgeDialog({ badgeId, onOpenChange, onAwarded }: {
+function AwardBadgeDialog({ badgeId, clubId, onOpenChange, onAwarded }: {
  badgeId: string | null
+ clubId: string
  onOpenChange: (o: boolean) => void
  onAwarded: () => void
 }) {
  const [search, setSearch] = useState('')
  const [selected, setSelected] = useState<Set<string>>(new Set())
 
- // Get badge info + eligible members
- const { data: badgeData } = useFetch<{ badge: any }>(badgeId ? `/api/badges?clubId=` : null)
- const clubId = badgeData?.badge?.clubId
+ // Get badge info + eligible members. The original code passed an empty
+ // `clubId=` to /api/badges and then read `badgeData.badge` (singular),
+ // but the API returns `{ badges: [...] }` — so this dialog never worked.
+ const effectiveClubId = clubId && clubId !== 'ALL' ? clubId : ''
+ const { data: badgeData } = useFetch<{ badges: any[] }>(
+ badgeId && effectiveClubId ? `/api/badges?clubId=${effectiveClubId}` : null
+ )
+ const badge = badgeData?.badges?.find(b => b.id === badgeId)
  const { data: membersData, loading } = useFetch<{ members: any[] }>(
- badgeId && clubId ? `/api/members?clubId=${clubId}&search=${encodeURIComponent(search)}&limit=50` : null
+ badgeId && effectiveClubId ? `/api/members?clubId=${effectiveClubId}&search=${encodeURIComponent(search)}&limit=50` : null
  )
 
  const members = membersData?.members || []
@@ -325,14 +332,14 @@ function AwardBadgeDialog({ badgeId, onOpenChange, onAwarded }: {
  const r = await apiPost('/api/badges/award', { badgeId, userIds: Array.from(selected) })
  toast.success(`Awarded to ${r.awarded} member${r.awarded !== 1 ? 's' : ''}`)
  onAwarded()
- } catch (e: any) { toast.error(e.message) }
+ } catch (e: any) { if (!e?.silent) toast.error(e.message) }
  }
 
  return (
  <Dialog open={!!badgeId} onOpenChange={onOpenChange}>
  <DialogContent className="max-w-xl">
  <DialogHeader>
- <DialogTitle>Award Badge</DialogTitle>
+ <DialogTitle>Award Badge{badge ? `: ${badge.name}` : ''}</DialogTitle>
  <DialogDescription>Select members to receive this badge.</DialogDescription>
  </DialogHeader>
  <div className="space-y-3 py-2">

@@ -63,11 +63,11 @@ export function InvitesTab({ clubId }: { clubId: string }) {
  </div>
  </div>
  {i.acceptedAt ? (
- <Badge variant="default" className="text-foreground bg-foreground dark:bg-emerald-950/40"><UserCheck className="h-3 w-3 mr-1" /> Accepted {new Date(i.acceptedAt).toLocaleDateString()}</Badge>
+ <Badge variant="default" className="bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300"><UserCheck className="h-3 w-3 mr-1" /> Accepted {new Date(i.acceptedAt).toLocaleDateString()}</Badge>
  ) : i.expiresAt && new Date(i.expiresAt) < new Date() ? (
- <Badge variant="outline" className="text-foreground">Expired</Badge>
+ <Badge variant="outline" className="text-red-700 dark:text-red-300 border-red-300">Expired</Badge>
  ) : (
- <Badge variant="outline" className="text-foreground">Pending</Badge>
+ <Badge variant="outline" className="text-amber-700 dark:text-amber-300 border-amber-300">Pending</Badge>
  )}
  <Button size="sm" variant="ghost" onClick={() => copyInviteLink(i.token)}>Copy link</Button>
  </CardContent>

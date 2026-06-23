@@ -54,12 +54,20 @@ type FetchState<T> = {
 
 type FetchAction<T> =
   | { type: 'start' }
+  | { type: 'refetch' }
   | { type: 'success', data: T }
   | { type: 'error', error: string }
 
 function fetchReducer<T>(state: FetchState<T>, action: FetchAction<T>): FetchState<T> {
   switch (action.type) {
+    // Initial load — no existing data, so show a spinner and clear any prior error.
     case 'start': return { ...state, loading: true, error: null }
+    // User-triggered refetch (or auto-refresh tick). We DO have prior data
+    // (otherwise `start` would have been dispatched). Keep showing it to avoid
+    // a flash-of-skeleton on every refresh; only flip the loading bit and
+    // preserve the existing error so the user still sees what went wrong last
+    // time while we try again.
+    case 'refetch': return { ...state, loading: true }
     case 'success': return { data: action.data, loading: false, error: null }
     case 'error': return { ...state, loading: false, error: action.error }
     default: return state
@@ -75,7 +83,11 @@ export function useFetch<T = any>(url: string | null, opts?: { refresh?: number 
   useEffect(() => {
     if (!url) return
     let cancelled = false
-    dispatch({ type: 'start' })
+    // On the very first load we have no data → show the skeleton by dispatching
+    // `start` (which clears the error too). On subsequent refreshes (refreshKey
+    // bump, opts.refresh tick, or a manual refetch()) dispatch `refetch` so we
+    // keep showing the stale data while reloading — no flicker.
+    dispatch(state.data ? { type: 'refetch' } : { type: 'start' })
 
     async function run() {
       try {
@@ -111,6 +123,7 @@ export function useFetch<T = any>(url: string | null, opts?: { refresh?: number 
       cancelled = true
       if (timer) clearInterval(timer)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url, refreshKey, opts?.refresh])
 
   return {
@@ -294,6 +307,40 @@ export async function apiDelete(url: string) {
       const recovered = await recoverFrom401()
       if (recovered) {
         const r2 = await fetch(url, { method: 'DELETE' })
+        if (r2.ok) return r2.json()
+        const err2 = await r2.json().catch(() => ({ error: r2.statusText }))
+        const e2: any = new Error(err2.error || `HTTP ${r2.status}`)
+        e2.status = r2.status
+        throw e2
+      }
+      const e: any = new Error('Session expired. Redirecting to login…')
+      e.status = 401
+      e.silent = true
+      throw e
+    }
+    const err = await r.json().catch(() => ({ error: r.statusText }))
+    const e: any = new Error(err.error || `HTTP ${r.status}`)
+    e.status = r.status
+    throw e
+  }
+  return r.json()
+}
+
+export async function apiPut(url: string, body: any) {
+  const r = await fetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!r.ok) {
+    if (r.status === 401) {
+      const recovered = await recoverFrom401()
+      if (recovered) {
+        const r2 = await fetch(url, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
         if (r2.ok) return r2.json()
         const err2 = await r2.json().catch(() => ({ error: r2.statusText }))
         const e2: any = new Error(err2.error || `HTTP ${r2.status}`)

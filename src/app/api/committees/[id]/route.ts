@@ -22,14 +22,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const c = await db.committee.update({ where: { id }, data, include: { members: true } })
 
-  // Sync members if provided
+  // Sync members if provided. Wrap deleteMany + createMany in a transaction
+  // so a crash between them can't leave the committee with zero members
+  // (the old member set already deleted, the new set not yet written).
   if (body.memberIds) {
-    await db.committeeMember.deleteMany({ where: { committeeId: id } })
-    if (body.memberIds.length > 0) {
-      await db.committeeMember.createMany({
-        data: body.memberIds.map((uid: string) => ({ committeeId: id, userId: uid, role: 'member' })),
-      })
-    }
+    await db.$transaction([
+      db.committeeMember.deleteMany({ where: { committeeId: id } }),
+      ...(body.memberIds.length > 0
+        ? [db.committeeMember.createMany({
+            data: body.memberIds.map((uid: string) => ({ committeeId: id, userId: uid, role: 'member' })),
+          })]
+        : []),
+    ])
   }
 
   return NextResponse.json(c)

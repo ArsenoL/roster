@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getCurrentUser, hasPermission } from '@/lib/clubhub/auth'
+import { csvSafe, csvField } from '@/lib/clubhub/sanitize'
 
 // GET /api/export?type=members|attendance|events&clubId=...
 export async function GET(req: NextRequest) {
@@ -23,6 +24,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'clubId required' }, { status: 400 })
   }
 
+  // Reject unknown export types instead of silently returning an empty CSV.
+  if (!['members', 'attendance', 'events'].includes(type)) {
+    return NextResponse.json({ error: 'Unknown export type' }, { status: 400 })
+  }
+
   let csv = ''
   let filename = `${type}_export_${new Date().toISOString().slice(0, 10)}.csv`
 
@@ -34,7 +40,8 @@ export async function GET(req: NextRequest) {
       include: {
         user: { select: { name: true, email: true, studentId: true, grade: true, graduationYear: true, house: true, phone: true, pronouns: true } },
         club: { select: { name: true } },
-      }
+      },
+      take: 5000,
     })
     csv = 'Name,Email,StudentID,Grade,GradYear,House,Pronouns,Phone,Club,Role,Points,Streak,Joined\n'
     for (const m of memberships) {
@@ -52,7 +59,7 @@ export async function GET(req: NextRequest) {
         m.points,
         m.streak,
         m.joinedAt.toISOString().slice(0, 10),
-      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',') + '\n'
+      ].map(v => csvField(csvSafe(v))).join(',') + '\n'
     }
   } else if (type === 'attendance') {
     const where: any = {}
@@ -80,7 +87,7 @@ export async function GET(req: NextRequest) {
         r.checkInTime?.toISOString() || '',
         r.checkOutTime?.toISOString() || '',
         r.pointsEarned,
-      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',') + '\n'
+      ].map(v => csvField(csvSafe(v))).join(',') + '\n'
     }
   } else if (type === 'events') {
     const where: any = {}
@@ -88,7 +95,8 @@ export async function GET(req: NextRequest) {
     const events = await db.event.findMany({
       where,
       include: { club: { select: { name: true } }, _count: { select: { attendances: true } } },
-      orderBy: { startTime: 'desc' }
+      orderBy: { startTime: 'desc' },
+      take: 5000,
     })
     csv = 'Club,Title,Type,Start,End,Location,Capacity,Required,Status,Attendance\n'
     for (const e of events) {
@@ -103,7 +111,7 @@ export async function GET(req: NextRequest) {
         e.isRequired ? 'Yes' : 'No',
         e.status,
         e._count.attendances,
-      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',') + '\n'
+      ].map(v => csvField(csvSafe(v))).join(',') + '\n'
     }
   }
 

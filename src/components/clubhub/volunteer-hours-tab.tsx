@@ -18,10 +18,10 @@ import { avatarColor, initials, formatHours, formatDate, formatDateTime } from '
 import { toast } from 'sonner'
 
 const STATUS_STYLES: Record<string, { color: string, icon: any, label: string }> = {
- PENDING: { color: 'bg-foreground text-foreground dark:bg-amber-950/30 dark:text-foreground', icon: Hourglass, label: 'Pending' },
- APPROVED: { color: 'bg-foreground text-foreground dark:bg-emerald-950/30 dark:text-foreground', icon: CheckCircle, label: 'Approved' },
- REJECTED: { color: 'bg-foreground text-foreground dark:bg-red-950/30 dark:text-foreground', icon: XCircle, label: 'Rejected' },
- DISPUTED: { color: 'bg-foreground text-foreground dark:bg-purple-950/30 dark:text-foreground', icon: XCircle, label: 'Disputed' },
+ PENDING: { color: 'bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300', icon: Hourglass, label: 'Pending' },
+ APPROVED: { color: 'bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300', icon: CheckCircle, label: 'Approved' },
+ REJECTED: { color: 'bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-300', icon: XCircle, label: 'Rejected' },
+ DISPUTED: { color: 'bg-purple-100 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300', icon: XCircle, label: 'Disputed' },
 }
 
 export function VolunteerHoursTab({ clubId }: { clubId: string }) {
@@ -38,22 +38,22 @@ export function VolunteerHoursTab({ clubId }: { clubId: string }) {
  <div className="space-y-6">
  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
  <Card><CardContent className="p-4">
- <div className="w-8 h-8 rounded-lg bg-foreground dark:bg-emerald-950/30 flex items-center justify-center mb-2"><CheckCircle className="h-4 w-4 text-foreground" /></div>
+ <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-950/30 flex items-center justify-center mb-2"><CheckCircle className="h-4 w-4 text-emerald-700 dark:text-emerald-300" /></div>
  <div className="text-xs text-muted-foreground">Approved Hours</div>
  <div className="text-xl font-bold">{formatHours(summary.totalApproved)}</div>
  </CardContent></Card>
  <Card><CardContent className="p-4">
- <div className="w-8 h-8 rounded-lg bg-foreground dark:bg-amber-950/30 flex items-center justify-center mb-2"><Hourglass className="h-4 w-4 text-foreground" /></div>
+ <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-950/30 flex items-center justify-center mb-2"><Hourglass className="h-4 w-4 text-amber-700 dark:text-amber-300" /></div>
  <div className="text-xs text-muted-foreground">Pending Review</div>
  <div className="text-xl font-bold">{formatHours(summary.totalPending)}</div>
  </CardContent></Card>
  <Card><CardContent className="p-4">
- <div className="w-8 h-8 rounded-lg bg-foreground dark:bg-blue-950/30 flex items-center justify-center mb-2"><Clock className="h-4 w-4 text-foreground" /></div>
+ <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-950/30 flex items-center justify-center mb-2"><Clock className="h-4 w-4 text-blue-700 dark:text-blue-300" /></div>
  <div className="text-xs text-muted-foreground">Total Entries</div>
  <div className="text-xl font-bold">{summary.totalEntries}</div>
  </CardContent></Card>
  <Card><CardContent className="p-4">
- <div className="w-8 h-8 rounded-lg bg-foreground dark:bg-purple-950/30 flex items-center justify-center mb-2"><Award className="h-4 w-4 text-foreground" /></div>
+ <div className="w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-950/30 flex items-center justify-center mb-2"><Award className="h-4 w-4 text-purple-700 dark:text-purple-300" /></div>
  <div className="text-xs text-muted-foreground">Active Members</div>
  <div className="text-xl font-bold">{perMember.length}</div>
  </CardContent></Card>
@@ -259,7 +259,9 @@ ${club?.advisor?.email || ''}`
  <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
  <DialogHeader><DialogTitle className="flex items-center gap-2"><Award className="h-4 w-4" /> Service Letter — {user?.name}</DialogTitle></DialogHeader>
  <div className="space-y-3">
- <div className="rounded-lg border p-4 bg-muted/30 font-mono text-xs whitespace-pre-wrap leading-relaxed">{letterText}</div>
+ {/* #print-area: window.print() should only print the letter, not the whole app shell. */}
+ <style>{`@media print { body * { visibility: hidden } #print-area, #print-area * { visibility: visible } #print-area { position: absolute; left: 0; top: 0; width: 100% } }`}</style>
+ <div id="print-area" className="rounded-lg border p-4 bg-muted/30 font-mono text-xs whitespace-pre-wrap leading-relaxed">{letterText}</div>
  <div className="flex justify-end gap-2">
  <Button variant="outline" onClick={() => navigator.clipboard.writeText(letterText)}>Copy to Clipboard</Button>
  <Button onClick={() => window.print()}>Print / Save as PDF</Button>

@@ -14,7 +14,9 @@ export async function GET(
   const album = await db.photoAlbum.findUnique({
     where: { id },
     include: {
-      photos: { orderBy: { uploadedAt: 'desc' } },
+      // Cap photos at 500 — an unbounded relation pull could OOM the
+      // process on an album with tens of thousands of photos.
+      photos: { orderBy: { uploadedAt: 'desc' }, take: 500 },
       event: { select: { id: true, title: true, startTime: true } },
       club: { select: { id: true, name: true, primaryColor: true } },
     },

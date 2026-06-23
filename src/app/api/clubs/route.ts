@@ -5,13 +5,25 @@ import { getCurrentUser } from '@/lib/clubhub/auth'
 
 // GET /api/clubs — list all clubs (with member/event counts)
 export async function GET(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const url = new URL(req.url)
   const category = url.searchParams.get('category')
   const search = url.searchParams.get('search')
 
+  const isAdmin = user.role === 'SUPER_ADMIN' || user.role === 'SCHOOL_ADMIN'
+
   const where: any = {}
   if (category && category !== 'ALL') where.category = category
   if (search) where.name = { contains: search }
+  if (!isAdmin) {
+    const myClubIds = user.memberships.map(m => m.clubId)
+    where.OR = [
+      ...(myClubIds.length > 0 ? [{ id: { in: myClubIds } }] : []),
+      { isPublic: true },
+    ]
+  }
 
   const clubs = await db.club.findMany({
     where,
@@ -21,24 +33,37 @@ export async function GET(req: NextRequest) {
       _count: { select: { members: true, events: true, announcements: true } },
     },
     orderBy: { name: 'asc' },
+    take: 500,
   })
 
-  // For each club, compute attendance rate and active members
-  const enriched = await Promise.all(clubs.map(async (c) => {
-    const activeMembers = await db.membership.count({ where: { clubId: c.id, status: 'ACTIVE' } })
-    const totalAttendance = await db.attendance.count({
-      where: { event: { clubId: c.id }, status: { in: ['PRESENT', 'LATE', 'VIRTUAL'] } }
-    })
-    const totalRecords = await db.attendance.count({ where: { event: { clubId: c.id } } })
+  const clubIds = clubs.map(c => c.id)
+  const [activeByClub, presentByClub, totalByClub] = await Promise.all([
+    db.membership.groupBy({ by: ['clubId'], where: { clubId: { in: clubIds }, status: 'ACTIVE' }, _count: { _all: true } }),
+    db.attendance.groupBy({ by: ['eventId'], where: { event: { clubId: { in: clubIds } }, status: { in: ['PRESENT', 'LATE', 'VIRTUAL'] } }, _count: { _all: true } }),
+    db.attendance.groupBy({ by: ['eventId'], where: { event: { clubId: { in: clubIds } } }, _count: { _all: true } }),
+  ])
+  const events = await db.event.findMany({ where: { clubId: { in: clubIds } }, select: { id: true, clubId: true } })
+  const eventToClub = new Map(events.map(e => [e.id, e.clubId]))
+  const presentByClubMap = new Map<string, number>()
+  const totalByClubMap = new Map<string, number>()
+  for (const r of presentByClub) { const cid = eventToClub.get(r.eventId); if (cid) presentByClubMap.set(cid, (presentByClubMap.get(cid) || 0) + r._count._all) }
+  for (const r of totalByClub) { const cid = eventToClub.get(r.eventId); if (cid) totalByClubMap.set(cid, (totalByClubMap.get(cid) || 0) + r._count._all) }
+  const activeByClubMap = new Map(activeByClub.map(r => [r.clubId, r._count._all]))
+
+  const myClubIdSet = new Set(user.memberships.map(m => m.clubId))
+  const enriched = clubs.map((c) => {
+    const activeMembers = activeByClubMap.get(c.id) || 0
+    const totalAttendance = presentByClubMap.get(c.id) || 0
+    const totalRecords = totalByClubMap.get(c.id) || 0
     const attendanceRate = totalRecords > 0 ? (totalAttendance / totalRecords) * 100 : 0
+    const isMember = myClubIdSet.has(c.id)
+    const advisor = isMember || isAdmin ? c.advisor : c.advisor ? { id: c.advisor.id, name: c.advisor.name } : null
     return {
-      ...c,
-      activeMembers,
+      ...c, advisor, activeMembers,
       attendanceRate: Math.round(attendanceRate * 10) / 10,
-      totalEvents: c._count.events,
-      totalAnnouncements: c._count.announcements,
+      totalEvents: c._count.events, totalAnnouncements: c._count.announcements,
     }
-  }))
+  })
 
   return NextResponse.json({ clubs: enriched })
 }
@@ -62,73 +87,45 @@ export async function POST(req: NextRequest) {
 
   // Create the club. Default brand colors come from the civic palette
   // (coral primary, teal accent) — clubs can override in Settings → Branding.
-  const club = await db.club.create({
-    data: {
-      name,
-      description: body.description || null,
-      category: body.category || 'OTHER',
-      primaryColor: body.primaryColor || '#d6543e',   // coral (matches --vibrant)
-      accentColor: body.accentColor || '#2a9d8f',     // teal (matches --vibrant-2)
-      advisorId: body.advisorId || null,
-      presidentId: user.id,  // creator is the president
-      meetingRoom: body.meetingRoom || null,
-      defaultDay: body.defaultDay || null,
-      defaultTime: body.defaultTime || null,
-      capacity: body.capacity || 50,
-      dues: body.dues || 0,
-      isPublic: body.isPublic ?? true,
-      requireApproval: body.requireApproval ?? false,
-      // New clubs get the Core 3 by default unless the caller passes an
-      // explicit modules array (e.g. from onboarding picker).
-      modules: JSON.stringify(body.modules ?? CORE_MODULES),
-    },
-    include: {
-      advisor: { select: { id: true, name: true } },
-      president: { select: { id: true, name: true } },
-    }
-  })
-
-  // Auto-enroll the creator as PRESIDENT of the new club.
-  // upsert guards against the (extremely unlikely) case where a Membership
-  // row for this user+club already exists from a prior partial run.
-  await db.membership.upsert({
-    where: { userId_clubId: { userId: user.id, clubId: club.id } },
-    create: {
-      userId: user.id,
-      clubId: club.id,
-      role: 'PRESIDENT',
-      status: 'ACTIVE',
-    },
-    update: {
-      role: 'PRESIDENT',
-      status: 'ACTIVE',
-      leftAt: null,
-    },
-  })
-
-  // If the user was a GUEST (auto-created on first magic-link sign-in),
-  // upgrade their global role so they have full club-leader permissions
-  // across the product (insights, audit, integrations, etc.).
-  if (user.role === 'GUEST') {
-    await db.user.update({
-      where: { id: user.id },
-      data: { role: 'CLUB_LEADER' },
+  const club = await db.$transaction(async (tx) => {
+    const created = await tx.club.create({
+      data: {
+        name,
+        description: body.description || null,
+        category: body.category || 'OTHER',
+        primaryColor: body.primaryColor || '#d6543e',
+        accentColor: body.accentColor || '#2a9d8f',
+        advisorId: body.advisorId || null,
+        presidentId: user.id,
+        meetingRoom: body.meetingRoom || null,
+        defaultDay: body.defaultDay || null,
+        defaultTime: body.defaultTime || null,
+        capacity: body.capacity || 50,
+        dues: body.dues || 0,
+        isPublic: body.isPublic ?? true,
+        requireApproval: body.requireApproval ?? false,
+        modules: JSON.stringify(body.modules ?? CORE_MODULES),
+      },
+      include: { advisor: { select: { id: true, name: true } }, president: { select: { id: true, name: true } } },
     })
-  }
 
-  // Seed default settings row
-  await db.clubSetting.create({ data: { clubId: club.id } })
+    await tx.membership.upsert({
+      where: { userId_clubId: { userId: user.id, clubId: created.id } },
+      create: { userId: user.id, clubId: created.id, role: 'PRESIDENT', status: 'ACTIVE' },
+      update: { role: 'PRESIDENT', status: 'ACTIVE', leftAt: null },
+    })
 
-  // Audit log
-  await db.auditLog.create({
-    data: {
-      action: 'create',
-      entity: 'Club',
-      entityId: club.id,
-      clubId: club.id,
-      userId: user.id,
-      after: JSON.stringify(club),
+    if (user.role === 'GUEST') {
+      await tx.user.update({ where: { id: user.id }, data: { role: 'CLUB_LEADER' } })
     }
+
+    await tx.clubSetting.create({ data: { clubId: created.id } })
+
+    await tx.auditLog.create({
+      data: { action: 'create', entity: 'Club', entityId: created.id, clubId: created.id, userId: user.id, after: JSON.stringify({ id: created.id, name: created.name }) },
+    })
+
+    return created
   })
 
   return NextResponse.json({ club })

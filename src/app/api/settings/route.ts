@@ -28,11 +28,19 @@ export async function PATCH(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { clubId, ...updates } = body
+  const clubId = body.clubId
   if (!clubId) return NextResponse.json({ error: 'clubId required' }, { status: 400 })
   if (!hasPermission(user, 'club:write', clubId)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
+
+  // Whitelist allowed settings fields — without this, a club:write caller
+  // could mass-assign arbitrary columns (e.g. internal flags, foreign keys)
+  // by including them in the PATCH body.
+  const ALLOWED = ['enableApplications', 'enableEvents', 'enableAttendance', 'enableFinance', 'enableAnnouncements', 'enableMembers', 'enableTasks', 'enablePolls', 'enableForms', 'enableDocuments', 'enableInventory', 'enableMaintenance', 'enableResources', 'enableVolunteerHours', 'enablePhotoAlbums', 'enableMeetingMinutes', 'enableCommunications', 'enableAlumni', 'enableGamification', 'enableAnalytics', 'enableAiInsights', 'enableAudit', 'enableIntegrations', 'enableDigests', 'timezone', 'motto', 'customCss', 'enableRsvp', 'enablePublicPortal', 'enableAlumniTracking', 'enableCommittees', 'enableCalendarSync', 'enableQrCheckin', 'enableKioskMode', 'enableSelfCheckin', 'enableGeofencing', 'enableSelfieVerify', 'enableStreaks', 'enableLeaderboard', 'enableParentPortal', 'requireExcuseNote', 'autoMarkNoShow', 'noShowThresholdMinutes', 'defaultAttendanceStatus', 'enableDuesTracking', 'emailRemindersEnabled', 'smsRemindersEnabled', 'reminderHoursBefore', 'attendanceWindowBefore', 'attendanceWindowAfter']
+  const updates: any = {}
+  for (const k of ALLOWED) if (k in body) updates[k] = body[k]
+
   const settings = await db.clubSetting.upsert({
     where: { clubId },
     create: { clubId, ...updates },

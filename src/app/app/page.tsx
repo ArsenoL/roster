@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useCurrentClub, useFetch } from '@/lib/clubhub/hooks'
@@ -131,6 +131,14 @@ const NAV_ITEMS: NavItem[] = [
 // different jobs even though they share a data source.)
 
 export default function HomePage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-muted-foreground">Loading…</div>}>
+      <HomePageInner />
+    </Suspense>
+  )
+}
+
+function HomePageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { user, loading: authLoading } = useAuth()

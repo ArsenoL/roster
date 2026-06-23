@@ -25,16 +25,12 @@ export function DigestsTab({ clubId }: { clubId: string }) {
  async function sendAll() {
  setSending(true)
  try {
- const res = await fetch('/api/digests/send', {
- method: 'POST',
- headers: { 'Content-Type': 'application/json' },
- body: JSON.stringify({ clubId: clubId !== 'ALL' ? clubId : undefined, forceAll: true }),
- })
- const d = await res.json()
+ const d = await apiPost('/api/digests/send', { clubId: clubId !== 'ALL' ? clubId : undefined, forceAll: true })
  toast.success(`Sent ${d.sent} digest(s)`)
  refetch()
- } catch (e: any) { toast.error(e.message) }
+ } catch (e: any) { if (!e?.silent) toast.error(e.message) } finally {
  setSending(false)
+ }
  }
 
  return (
