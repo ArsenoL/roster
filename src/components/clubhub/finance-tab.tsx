@@ -52,10 +52,15 @@ export function FinanceTab({ clubId }: { clubId: string }) {
  <TabsContent value="overview" className="space-y-4">
  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
  <Card>
- <CardHeader><CardTitle className="text-base">Monthly Cash Flow</CardTitle></CardHeader>
+ <CardHeader className="flex flex-row items-center justify-between">
+ <CardTitle className="text-base">Monthly Cash Flow</CardTitle>
+ {transactions.length === 0 && (
+ <Button onClick={() => setCreateOpen(true)} size="sm"><Plus className="h-4 w-4 mr-1" /> New Transaction</Button>
+ )}
+ </CardHeader>
  <CardContent>
  {monthly.length === 0 ? (
- <div className="text-center text-sm text-muted-foreground py-8">No transactions yet</div>
+ <div className="text-center text-sm text-muted-foreground py-8">No transactions yet — click "New Transaction" to get started.</div>
  ) : (
  <ResponsiveContainer width="100%" height={260}>
  <BarChart data={monthly}>

@@ -193,6 +193,7 @@ function NewConversationDialog({ open, onOpenChange, clubId, currentUserId, onCr
  firstMessage,
  senderId: currentUserId,
  })
+ toast.success('Conversation started')
  onCreated(res.conversation.id)
  setSelected([])
  setFirstMessage('')

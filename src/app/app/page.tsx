@@ -152,6 +152,26 @@ function HomePageInner() {
   const clubs = clubsData?.clubs || []
   const currentClub = clubs.find((c) => c.id === clubId)
 
+  // Auto-select the first club when the page loads and no club is selected.
+  // Without this, the club selector shows "Select" and the sidebar is empty,
+  // which confuses users — they don't know they need to pick a club first.
+  // We only auto-select if clubId is still 'ALL' (the default) and there are
+  // clubs available. If the user explicitly chose 'ALL' (overview mode), we
+  // respect that — but the initial load with no localStorage value lands here.
+  useEffect(() => {
+    if (clubs.length > 0 && clubId === 'ALL') {
+      // Check if the user has a stored preference — if not, pick the first club.
+      try {
+        const stored = window.localStorage.getItem('roster.currentClub')
+        if (!stored || stored === 'ALL') {
+          setClubId(clubs[0].id)
+        }
+      } catch {
+        setClubId(clubs[0].id)
+      }
+    }
+  }, [clubs, clubId, setClubId])
+
   // Auth gate — if not signed in, redirect to login with the next param preserved.
   useEffect(() => {
     if (!authLoading && !user) {

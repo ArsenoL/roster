@@ -233,13 +233,21 @@ function CreateEventDialog({ open, onOpenChange, clubId, onCreated }: {
  clubId: string
  onCreated: () => void
 }) {
+ // Default start date to tomorrow, end date to tomorrow — so the form is
+ // submittable without the user having to manually pick a date in the
+ // native date picker (which is hard for browser automation and
+ // keyboard-only users).
+ const tomorrow = new Date()
+ tomorrow.setDate(tomorrow.getDate() + 1)
+ const tomorrowStr = tomorrow.toISOString().split('T')[0]
+
  const [form, setForm] = useState({
  title: '',
  description: '',
  type: 'MEETING',
- startDate: '',
+ startDate: tomorrowStr,
  startTime: '15:30',
- endDate: '',
+ endDate: tomorrowStr,
  endTime: '17:00',
  location: '',
  capacity: 50,
@@ -271,7 +279,7 @@ function CreateEventDialog({ open, onOpenChange, clubId, onCreated }: {
  status: 'SCHEDULED',
  })
  toast.success(form.recurrence !== 'none' ? `Created ${form.recurrenceCount} recurring events` : 'Event created')
- setForm({ title: '', description: '', type: 'MEETING', startDate: '', startTime: '15:30', endDate: '', endTime: '17:00', location: '', capacity: 50, isRequired: false, recurrence: 'none', recurrenceCount: 12 })
+ setForm({ title: '', description: '', type: 'MEETING', startDate: tomorrowStr, startTime: '15:30', endDate: tomorrowStr, endTime: '17:00', location: '', capacity: 50, isRequired: false, recurrence: 'none', recurrenceCount: 12 })
  onOpenChange(false)
  onCreated()
  } catch (e: any) {
