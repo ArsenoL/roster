@@ -99,6 +99,32 @@ export function useAuth() {
           // cached user — the global 401 handler will sort it out if the
           // session is actually gone.
         } else if (res.status === 401) {
+          // 401 from /api/auth/me. With Supabase Auth, this could mean:
+          //   1. The user is genuinely not signed in (no session at all)
+          //   2. The access token expired and middleware hasn't refreshed it yet
+          //
+          // If we have a cached user, DON'T immediately sign them out —
+          // give the middleware one chance to refresh the token by retrying
+          // after a short delay. Only sign out if the retry also fails.
+          if (cachedUser) {
+            // Retry once after 500ms — the middleware might refresh the token
+            // on the next request
+            await new Promise(r => setTimeout(r, 500))
+            if (cancelled) return
+            const retryRes = await fetch('/api/auth/me')
+            if (cancelled) return
+            if (retryRes.ok) {
+              const retryData = await retryRes.json()
+              if (retryData.user) {
+                cachedUser = retryData.user
+                cachedUserAt = Date.now()
+                setUser(retryData.user)
+                emit()
+                return
+              }
+            }
+          }
+          // Genuinely signed out (or retry failed)
           cachedUser = null
           cachedUserAt = 0
           setUser(null)

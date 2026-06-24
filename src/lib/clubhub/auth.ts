@@ -174,17 +174,24 @@ export async function generateSessionToken(userId: string): Promise<string> {
  *  found, falls back to the legacy roster_session cookie (for existing
  *  users who haven't been migrated yet). This dual-path approach lets us
  *  roll out Supabase Auth without forcing everyone to re-login.
+ *
+ *  IMPORTANT: Uses getUser() (not getSession()) because getUser() validates
+ *  the JWT against the Supabase server and refreshes it if needed.
+ *  getSession() just reads the local cookie without refreshing, which causes
+ *  sessions to die after the access token expires (1 hour).
  */
 export async function getCurrentUser(): Promise<AuthUser | null> {
   // --- Path 1: Supabase Auth (new) ---
   try {
     const { createServerClient } = await import('@/lib/supabase')
     const supabase = await createServerClient()
-    const { data: { session } } = await supabase.auth.getSession()
-    if (session?.user?.id) {
+    // Use getUser() — it validates the token server-side and refreshes
+    // expired tokens. getSession() is unreliable in SSR contexts.
+    const { data: { user: authUser } } = await supabase.auth.getUser()
+    if (authUser?.id) {
       // Look up our User row by supabaseAuthId
       const user = await db.user.findFirst({
-        where: { supabaseAuthId: session.user.id },
+        where: { supabaseAuthId: authUser.id },
         include: {
           memberships: {
             where: { status: 'ACTIVE' },
@@ -193,10 +200,33 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
         },
       })
       if (user) return shapeAuthUser(user)
-      // If the Supabase auth user exists but no User row does, the user
-      // signed up via Supabase Auth but the app hasn't created their User
-      // row yet. This happens during the migration transition — return null
-      // so the frontend redirects to a profile-completion step.
+      // If the Supabase auth user exists but no User row does, try by email
+      // (legacy user being migrated)
+      if (authUser.email) {
+        const legacyUser = await db.user.findUnique({
+          where: { email: authUser.email },
+          include: {
+            memberships: {
+              where: { status: 'ACTIVE' },
+              include: { club: { select: { id: true, name: true } } },
+            },
+          },
+        })
+        if (legacyUser && !legacyUser.supabaseAuthId) {
+          // Link the Supabase auth ID to the existing User row
+          const updated = await db.user.update({
+            where: { id: legacyUser.id },
+            data: { supabaseAuthId: authUser.id },
+            include: {
+              memberships: {
+                where: { status: 'ACTIVE' },
+                include: { club: { select: { id: true, name: true } } },
+              },
+            },
+          })
+          return shapeAuthUser(updated)
+        }
+      }
     }
   } catch (e) {
     // Supabase not configured or error — fall through to legacy auth

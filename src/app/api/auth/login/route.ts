@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { shapeAuthUser, validateEmail } from '@/lib/clubhub/auth'
+import {
+  shapeAuthUser,
+  validateEmail,
+  verifyPassword,
+  generateSessionToken,
+  setSessionCookie,
+} from '@/lib/clubhub/auth'
 import { createServerClient } from '@/lib/supabase'
 
 // Per-IP rate limiter — 20 login attempts per 15 minutes.
@@ -33,12 +39,9 @@ if (typeof setInterval !== 'undefined') {
  * POST /api/auth/login
  * Body: { email, password }
  *
- * Uses Supabase Auth for authentication. After successful sign-in, looks up
- * the corresponding User row in our public.User table by supabaseAuthId.
- * If the user doesn't have a User row yet (e.g., legacy user being migrated),
- * creates one automatically.
- *
- * The Supabase SSR client automatically sets the auth cookies on the response.
+ * Tries Supabase Auth first. If that fails (e.g., user has a .local email
+ * that Supabase rejects, or the user hasn't been migrated to Supabase Auth
+ * yet), falls back to the legacy scrypt password verification.
  */
 export async function POST(req: NextRequest) {
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
@@ -63,20 +66,71 @@ export async function POST(req: NextRequest) {
   if (emailErr) return NextResponse.json({ error: emailErr }, { status: 400 })
   if (!password) return NextResponse.json({ error: 'Password is required' }, { status: 400 })
 
-  // Sign in via Supabase Auth
-  const supabase = await createServerClient()
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+  // --- Path 1: Try Supabase Auth ---
+  try {
+    const supabase = await createServerClient()
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
 
-  if (error || !data.user) {
-    return NextResponse.json(
-      { error: 'Incorrect email or password' },
-      { status: 401 }
-    )
+    if (!error && data.user) {
+      // Supabase auth succeeded — look up or create the User row
+      let user = await db.user.findFirst({
+        where: { supabaseAuthId: data.user.id },
+        include: {
+          memberships: {
+            where: { status: 'ACTIVE' },
+            include: { club: { select: { id: true, name: true } } },
+          },
+        },
+      })
+
+      if (!user) {
+        // Legacy user — find by email and link supabaseAuthId
+        user = await db.user.findUnique({
+          where: { email },
+          include: {
+            memberships: {
+              where: { status: 'ACTIVE' },
+              include: { club: { select: { id: true, name: true } } },
+            },
+          },
+        })
+
+        if (user) {
+          user = await db.user.update({
+            where: { id: user.id },
+            data: { supabaseAuthId: data.user.id },
+            include: {
+              memberships: {
+                where: { status: 'ACTIVE' },
+                include: { club: { select: { id: true, name: true } } },
+              },
+            },
+          })
+        } else {
+          // Brand new user
+          const name = data.user.user_metadata?.name || email.split('@')[0]
+          user = await db.user.create({
+            data: { email, name, role: 'STUDENT', supabaseAuthId: data.user.id },
+            include: {
+              memberships: {
+                where: { status: 'ACTIVE' },
+                include: { club: { select: { id: true, name: true } } },
+              },
+            },
+          })
+        }
+      }
+
+      return NextResponse.json({ ok: true, user: shapeAuthUser(user) })
+    }
+  } catch (e) {
+    // Supabase error — fall through to legacy auth
   }
 
-  // Look up or create the User row in our public.User table
-  let user = await db.user.findFirst({
-    where: { supabaseAuthId: data.user.id },
+  // --- Path 2: Legacy auth (for users not in Supabase Auth) ---
+  // Look up the user by email and verify their scrypt password hash.
+  const legacyUser = await db.user.findUnique({
+    where: { email },
     include: {
       memberships: {
         where: { status: 'ACTIVE' },
@@ -85,51 +139,31 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  if (!user) {
-    // Legacy user — they exist in auth.users but not in public.User.
-    // Try to find them by email, and link their supabaseAuthId.
-    user = await db.user.findUnique({
-      where: { email },
-      include: {
-        memberships: {
-          where: { status: 'ACTIVE' },
-          include: { club: { select: { id: true, name: true } } },
-        },
-      },
-    })
-
-    if (user) {
-      // Link the Supabase auth ID to the existing User row
-      user = await db.user.update({
-        where: { id: user.id },
-        data: { supabaseAuthId: data.user.id },
-        include: {
-          memberships: {
-            where: { status: 'ACTIVE' },
-            include: { club: { select: { id: true, name: true } } },
-          },
-        },
-      })
-    } else {
-      // Brand new user — create a User row
-      const name = data.user.user_metadata?.name || data.user.email?.split('@')[0] || 'User'
-      user = await db.user.create({
+  if (legacyUser?.passwordHash) {
+    const ok = await verifyPassword(password, legacyUser.passwordHash)
+    if (ok) {
+      // Legacy login succeeded — set the legacy session cookie.
+      // The Supabase cookie won't be set, but getCurrentUser() checks
+      // both paths so the user stays authenticated.
+      const sessionToken = await generateSessionToken(legacyUser.id)
+      await db.userSession.create({
         data: {
-          email,
-          name,
-          role: 'STUDENT',
-          supabaseAuthId: data.user.id,
-        },
-        include: {
-          memberships: {
-            where: { status: 'ACTIVE' },
-            include: { club: { select: { id: true, name: true } } },
-          },
+          userId: legacyUser.id,
+          token: sessionToken,
+          ipAddress: req.headers.get('x-forwarded-for') || null,
+          userAgent: req.headers.get('user-agent') || null,
+          expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 14),
         },
       })
+      const res = NextResponse.json({ ok: true, user: shapeAuthUser(legacyUser) })
+      await setSessionCookie(res, sessionToken)
+      return res
     }
   }
 
-  const fullUser = shapeAuthUser(user)
-  return NextResponse.json({ ok: true, user: fullUser })
+  // Both paths failed
+  return NextResponse.json(
+    { error: 'Incorrect email or password' },
+    { status: 401 }
+  )
 }
