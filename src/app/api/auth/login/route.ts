@@ -1,16 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import {
-  generateSessionToken,
-  hashPassword,
-  setSessionCookie,
-  shapeAuthUser,
-  validateEmail,
-  verifyPassword,
-} from '@/lib/clubhub/auth'
+import { shapeAuthUser, validateEmail } from '@/lib/clubhub/auth'
+import { createServerClient } from '@/lib/supabase'
 
 // Per-IP rate limiter — 20 login attempts per 15 minutes.
-// Prevents brute-force password guessing from a single source IP.
 const loginAttempts = new Map<string, { count: number; firstAt: number }>()
 const LOGIN_WINDOW_MS = 15 * 60 * 1000
 const LOGIN_MAX_ATTEMPTS = 20
@@ -18,34 +11,42 @@ const LOGIN_MAX_ATTEMPTS = 20
 function checkLoginRate(ip: string): boolean {
   const now = Date.now()
   const entry = loginAttempts.get(ip)
-  if (!entry || (now - entry.firstAt) > LOGIN_WINDOW_MS) {
+  if (!entry || now - entry.firstAt > LOGIN_WINDOW_MS) {
     loginAttempts.set(ip, { count: 1, firstAt: now })
     return true
   }
-  entry.count += 1
-  if (entry.count > LOGIN_MAX_ATTEMPTS) return false
+  if (entry.count >= LOGIN_MAX_ATTEMPTS) return false
+  entry.count++
   return true
+}
+
+if (typeof setInterval !== 'undefined') {
+  setInterval(() => {
+    const now = Date.now()
+    for (const [ip, entry] of loginAttempts) {
+      if (now - entry.firstAt > LOGIN_WINDOW_MS) loginAttempts.delete(ip)
+    }
+  }, 10 * 60 * 1000).unref?.()
 }
 
 /**
  * POST /api/auth/login
  * Body: { email, password }
  *
- * Verifies the email + password and starts a new session.
+ * Uses Supabase Auth for authentication. After successful sign-in, looks up
+ * the corresponding User row in our public.User table by supabaseAuthId.
+ * If the user doesn't have a User row yet (e.g., legacy user being migrated),
+ * creates one automatically.
  *
- * Security notes:
- *  - We always run verifyPassword (even on missing user) to keep response
- *    timing roughly constant — slightly weakens user enumeration but is
- *    better UX than a generic "invalid credentials" with no hint.
- *  - Returns 401 with a generic message on any failure (bad email, bad
- *    password, no password set on the account — e.g. invited users).
- *  - On success, rotates the session token: any existing sessions stay
- *    alive (multi-device login), we just add a new one.
+ * The Supabase SSR client automatically sets the auth cookies on the response.
  */
 export async function POST(req: NextRequest) {
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
   if (!checkLoginRate(ip)) {
-    return NextResponse.json({ error: 'Too many login attempts. Please try again later.' }, { status: 429 })
+    return NextResponse.json(
+      { error: 'Too many login attempts. Please try again later.' },
+      { status: 429 }
+    )
   }
 
   let body: any
@@ -59,57 +60,23 @@ export async function POST(req: NextRequest) {
   const password = String(body.password || '')
 
   const emailErr = validateEmail(email)
-  if (emailErr) {
-    return NextResponse.json({ error: emailErr }, { status: 400 })
-  }
-  if (!password) {
-    return NextResponse.json({ error: 'Password is required' }, { status: 400 })
-  }
+  if (emailErr) return NextResponse.json({ error: emailErr }, { status: 400 })
+  if (!password) return NextResponse.json({ error: 'Password is required' }, { status: 400 })
 
-  const user = await db.user.findUnique({ where: { email } })
+  // Sign in via Supabase Auth
+  const supabase = await createServerClient()
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password })
 
-  // Always run verifyPassword with something to keep timing roughly constant
-  // — if the user doesn't exist, hash this request's password and verify
-  // against that freshly-computed hash so the per-request work matches the
-  // real-login path (a static DUMMY_HASH is unsafe — verifyPassword returns
-  // false fast for hashes whose keylen != SCRYPT_KEYLEN).
-  let ok = false
-  if (user?.passwordHash) {
-    ok = await verifyPassword(password, user.passwordHash)
-  } else {
-    const dummyHash = await hashPassword(password)
-    await verifyPassword(password, dummyHash) // run for timing cost
-    ok = false
-  }
-
-  if (!user || !ok) {
+  if (error || !data.user) {
     return NextResponse.json(
       { error: 'Incorrect email or password' },
       { status: 401 }
     )
   }
 
-  // Create a fresh session
-  const sessionToken = await generateSessionToken(user.id)
-  await db.userSession.create({
-    data: {
-      userId: user.id,
-      token: sessionToken,
-      ipAddress: req.headers.get('x-forwarded-for') || null,
-      userAgent: req.headers.get('user-agent') || null,
-      expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 14),
-    },
-  })
-
-  // Fetch the user's active memberships so the client can compute the
-  // correct landing page without an extra round-trip. Without memberships,
-  // defaultLandingForUser() would send every non-STUDENT/non-PARENT user
-  // to /app/onboarding even if they have an active club.
-  //
-  // (We can't use getCurrentUser() here because it reads the session cookie
-  // from the incoming request — and we haven't set the response cookie yet.)
-  const userWithMemberships = await db.user.findUnique({
-    where: { id: user.id },
+  // Look up or create the User row in our public.User table
+  let user = await db.user.findFirst({
+    where: { supabaseAuthId: data.user.id },
     include: {
       memberships: {
         where: { status: 'ACTIVE' },
@@ -118,9 +85,51 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  const fullUser = shapeAuthUser(userWithMemberships!)
+  if (!user) {
+    // Legacy user — they exist in auth.users but not in public.User.
+    // Try to find them by email, and link their supabaseAuthId.
+    user = await db.user.findUnique({
+      where: { email },
+      include: {
+        memberships: {
+          where: { status: 'ACTIVE' },
+          include: { club: { select: { id: true, name: true } } },
+        },
+      },
+    })
 
-  const res = NextResponse.json({ ok: true, user: fullUser })
-  await setSessionCookie(res, sessionToken)
-  return res
+    if (user) {
+      // Link the Supabase auth ID to the existing User row
+      user = await db.user.update({
+        where: { id: user.id },
+        data: { supabaseAuthId: data.user.id },
+        include: {
+          memberships: {
+            where: { status: 'ACTIVE' },
+            include: { club: { select: { id: true, name: true } } },
+          },
+        },
+      })
+    } else {
+      // Brand new user — create a User row
+      const name = data.user.user_metadata?.name || data.user.email?.split('@')[0] || 'User'
+      user = await db.user.create({
+        data: {
+          email,
+          name,
+          role: 'STUDENT',
+          supabaseAuthId: data.user.id,
+        },
+        include: {
+          memberships: {
+            where: { status: 'ACTIVE' },
+            include: { club: { select: { id: true, name: true } } },
+          },
+        },
+      })
+    }
+  }
+
+  const fullUser = shapeAuthUser(user)
+  return NextResponse.json({ ok: true, user: fullUser })
 }
