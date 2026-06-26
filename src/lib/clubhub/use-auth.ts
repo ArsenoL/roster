@@ -51,31 +51,14 @@ export function useAuth() {
     listeners.add(listener)
 
     async function load() {
-      // If the cache is fresh (validated within CACHE_TTL_MS), trust it.
-      // This avoids a flash of unauthenticated state on every navigation
-      // and avoids hammering /api/auth/me on every page mount.
+      // If the cache is fresh, trust it.
       const now = Date.now()
       if (cachedUser && (now - cachedUserAt) < CACHE_TTL_MS) {
         setLoading(false)
         return
       }
 
-      // Otherwise, re-validate against the server. The cache may be stale
-      // because the session was invalidated server-side (expired, signed
-      // out in another tab, cookie not sent on a cross-origin request).
-      // Without this re-validation the UI would keep showing "signed in"
-      // while every API call 401s — the "session keeps expiring" complaint.
-      //
-      // CRITICAL: if the server returns a null user BUT we previously had
-      // a cached user, do NOT immediately null out the cache. There are
-      // transient cases (SQLite WAL lag, connection reuse, cookie not sent
-      // on a single request) where /api/auth/me returns null even though
-      // the session is actually valid. Immediately nulling the cache causes
-      // the auth gate to redirect to /login — the "after I make a club it
-      // sends me back to the sign in page" bug. Instead, keep the cached
-      // user and let the global 401 handler in apiPost/useFetch deal with
-      // actual session invalidation (it retries /api/auth/me and only
-      // redirects if the retry also says null).
+      // Check /api/auth/me
       try {
         const res = await fetch('/api/auth/me')
         if (cancelled) return
@@ -84,39 +67,26 @@ export function useAuth() {
           if (cancelled) return
           const serverUser = d.user ?? null
           if (serverUser) {
-            // Server confirms we're authenticated — update the cache.
             cachedUser = serverUser
             cachedUserAt = now
             setUser(serverUser)
             emit()
-          } else if (!cachedUser) {
-            // Server says null AND we have no cached user — genuinely
-            // signed out. Set user to null so the auth gate redirects.
-            setUser(null)
-            emit()
-          }
-          // else: server says null but we have a cached user. Keep the
-          // cached user — the global 401 handler will sort it out if the
-          // session is actually gone.
-        } else if (res.status === 401) {
-          // 401 from /api/auth/me. If we have a cached user, DON'T sign
-          // them out immediately — it might be a transient issue. Only
-          // sign out if we have no cached user (genuine not-signed-in).
-          if (!cachedUser) {
+          } else {
+            // No user — genuinely signed out
             cachedUser = null
             cachedUserAt = 0
             setUser(null)
             emit()
           }
-          // If we DO have a cached user, keep it. The global 401 handler
-          // in apiPost/useFetch will handle actual session invalidation.
+        } else {
+          // 401 or other error — if no cached user, treat as signed out
+          if (!cachedUser) {
+            setUser(null)
+            emit()
+          }
         }
       } catch (e) {
-        // Network error — leave cachedUser as-is. The user might be on a
-        // flaky connection; we shouldn't sign them out just because a
-        // single fetch failed. If the session really is gone, the next
-        // API call will 401 and the global handler in apiPost will deal
-        // with it.
+        // Network error — don't sign out
       } finally {
         if (!cancelled) setLoading(false)
       }

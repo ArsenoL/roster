@@ -169,29 +169,34 @@ export async function generateSessionToken(userId: string): Promise<string> {
 }
 
 /** Get the current authenticated user (server-side).
- *
- *  Tries Supabase Auth first (the new system). If no Supabase session is
- *  found, falls back to the legacy roster_session cookie (for existing
- *  users who haven't been migrated yet). This dual-path approach lets us
- *  roll out Supabase Auth without forcing everyone to re-login.
- *
- *  IMPORTANT: Uses getUser() (not getSession()) because getUser() validates
- *  the JWT against the Supabase server and refreshes it if needed.
- *  getSession() just reads the local cookie without refreshing, which causes
- *  sessions to die after the access token expires (1 hour).
+ *  Pure Supabase Auth — no legacy fallback.
+ *  Uses getUser() which validates the JWT server-side.
  */
 export async function getCurrentUser(): Promise<AuthUser | null> {
-  // --- Path 1: Supabase Auth (new) ---
   try {
     const { createServerClient } = await import('@/lib/supabase')
     const supabase = await createServerClient()
-    // Use getUser() — it validates the token server-side and refreshes
-    // expired tokens. getSession() is unreliable in SSR contexts.
     const { data: { user: authUser } } = await supabase.auth.getUser()
-    if (authUser?.id) {
-      // Look up our User row by supabaseAuthId
-      const user = await db.user.findFirst({
-        where: { supabaseAuthId: authUser.id },
+    if (!authUser?.id) return null
+
+    // Look up our User row by supabaseAuthId
+    const user = await db.user.findFirst({
+      where: { supabaseAuthId: authUser.id },
+      include: {
+        memberships: {
+          where: { status: 'ACTIVE' },
+          include: { club: { select: { id: true, name: true } } },
+        },
+      },
+    })
+
+    if (user) return shapeAuthUser(user)
+
+    // User exists in auth.users but not in public."User" — create them
+    if (authUser.email) {
+      // Check if they exist by email (migrated user)
+      const existing = await db.user.findUnique({
+        where: { email: authUser.email },
         include: {
           memberships: {
             where: { status: 'ACTIVE' },
@@ -199,12 +204,10 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
           },
         },
       })
-      if (user) return shapeAuthUser(user)
-      // If the Supabase auth user exists but no User row does, try by email
-      // (legacy user being migrated)
-      if (authUser.email) {
-        const legacyUser = await db.user.findUnique({
-          where: { email: authUser.email },
+      if (existing) {
+        const updated = await db.user.update({
+          where: { id: existing.id },
+          data: { supabaseAuthId: authUser.id },
           include: {
             memberships: {
               where: { status: 'ACTIVE' },
@@ -212,79 +215,32 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
             },
           },
         })
-        if (legacyUser && !legacyUser.supabaseAuthId) {
-          // Link the Supabase auth ID to the existing User row
-          const updated = await db.user.update({
-            where: { id: legacyUser.id },
-            data: { supabaseAuthId: authUser.id },
-            include: {
-              memberships: {
-                where: { status: 'ACTIVE' },
-                include: { club: { select: { id: true, name: true } } },
-              },
-            },
-          })
-          return shapeAuthUser(updated)
-        }
+        return shapeAuthUser(updated)
       }
-    }
-  } catch (e) {
-    // Supabase not configured or error — fall through to legacy auth
-  }
 
-  // --- Path 2: Legacy session cookie (old system, for migration) ---
-  const cookieStore = await cookies()
-  const token = cookieStore.get(SESSION_COOKIE)?.value
-  if (!token) return null
-
-  const verified = await verifyToken(token)
-  if (!verified) return null
-
-  let session
-  try {
-    session = await db.userSession.findUnique({
-      where: { token },
-      include: {
-        user: {
-          include: {
-            memberships: {
-              where: { status: 'ACTIVE' },
-              include: { club: { select: { id: true, name: true } } },
-            },
+      // Brand new — create
+      const name = authUser.user_metadata?.name || authUser.email.split('@')[0]
+      const newUser = await db.user.create({
+        data: {
+          email: authUser.email,
+          name,
+          role: 'STUDENT',
+          supabaseAuthId: authUser.id,
+        },
+        include: {
+          memberships: {
+            where: { status: 'ACTIVE' },
+            include: { club: { select: { id: true, name: true } } },
           },
         },
-      },
-    })
-  } catch (e) {
-    try {
-      await db.userSession.deleteMany({ where: { token } })
-    } catch {}
-    return null
-  }
-
-  if (!session || !session.user || session.expiresAt < new Date()) {
-    if (session && !session.user) {
-      try { await db.userSession.deleteMany({ where: { token } }) } catch {}
+      })
+      return shapeAuthUser(newUser)
     }
-    return null
+  } catch (e) {
+    // Supabase error — return null
   }
 
-  // Rolling renewal — only if more than 1 day from expiring
-  const oneDayFromNow = new Date(Date.now() + 24 * 60 * 60 * 1000)
-  if (session.expiresAt > oneDayFromNow) {
-    return shapeAuthUser(session.user)
-  }
-
-  try {
-    await db.userSession.update({
-      where: { id: session.id },
-      data: { expiresAt: new Date(Date.now() + SESSION_DURATION_MS) },
-    })
-  } catch {
-    // Non-fatal
-  }
-
-  return shapeAuthUser(session.user)
+  return null
 }
 
 /** Shape a raw Prisma User row (with memberships + club included) into the
