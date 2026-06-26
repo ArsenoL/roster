@@ -174,7 +174,7 @@ export async function generateSessionToken(userId: string): Promise<string> {
  */
 export async function getCurrentUser(): Promise<AuthUser | null> {
   try {
-    const { createServerClient } = await import('@/lib/supabase')
+    const { createServerClient } = await import('@/lib/supabase-server')
     const supabase = await createServerClient()
     const { data: { user: authUser } } = await supabase.auth.getUser()
     if (!authUser?.id) return null

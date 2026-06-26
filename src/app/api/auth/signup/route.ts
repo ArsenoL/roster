@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { shapeAuthUser, validateEmail, validatePassword } from '@/lib/clubhub/auth'
-import { createServerClient } from '@/lib/supabase'
+import { createServerClient } from '@/lib/supabase-server'
 
 // Per-IP rate limiter — 5 signups per hour.
 const signupAttempts = new Map<string, { count: number; firstAt: number }>()

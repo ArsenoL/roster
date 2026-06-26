@@ -1,4 +1,4 @@
-import { createServiceClient } from '../src/lib/supabase'
+import { createServiceClient } from '../src/lib/supabase-server'
 import { db } from '../src/lib/db'
 
 async function main() {

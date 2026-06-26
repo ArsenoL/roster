@@ -234,7 +234,7 @@ function LoginInner() {
                 className="w-full h-11"
                 onClick={async () => {
                   try {
-                    const { createClient } = await import('@/lib/supabase')
+                    const { createClient } = await import('@/lib/supabase-browser')
                     const supabase = createClient()
                     await supabase.auth.signInWithOAuth({
                       provider: 'google',

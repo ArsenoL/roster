@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { db } from '@/lib/db'
 import { clearSessionCookie } from '@/lib/clubhub/auth'
-import { createServerClient } from '@/lib/supabase'
+import { createServerClient } from '@/lib/supabase-server'
 
 export async function POST(req: NextRequest) {
   // Sign out of Supabase Auth (clears the Supabase session cookies)

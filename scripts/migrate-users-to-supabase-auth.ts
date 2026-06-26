@@ -17,7 +17,7 @@
  */
 
 import { db } from '../src/lib/db'
-import { createServiceClient } from '../src/lib/supabase'
+import { createServiceClient } from '../src/lib/supabase-server'
 
 async function main() {
   const supabase = createServiceClient()

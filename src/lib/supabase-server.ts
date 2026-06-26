@@ -1,29 +1,21 @@
 /**
- * Supabase client helpers.
+ * Server-only Supabase client.
  *
- * Two flavors:
- *   - `createClient()` — browser-side client (uses anon key + user session)
- *   - `createServerClient()` — server-side client (uses cookies for SSR)
- *   - `createServiceClient()` — server-side admin client (bypasses RLS)
- *
- * The browser client is used by the `useAuth` hook and login/signup pages.
- * The server client is used by `getCurrentUser()` to read the session.
- * The service client is used for admin operations (migrating users, etc.).
+ * This file imports next/headers and must NEVER be imported from a client
+ * component. Import from '@/lib/supabase-browser' instead for client-side usage.
  */
 
-import { createBrowserClient } from '@supabase/ssr'
+import 'server-only'
 import { createServerClient as createSSRClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { cookies } from 'next/headers'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
-/** Browser-side Supabase client. Uses the anon key + user's session cookie. */
-export function createClient() {
-  return createBrowserClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-}
+/** Re-export the browser client for convenience (server components can use it too). */
+export { createClient } from '@/lib/supabase-browser'
 
 /** Server-side Supabase client that reads/writes cookies for SSR auth. */
 export async function createServerClient() {
@@ -42,8 +34,7 @@ export async function createServerClient() {
               cookieStore.set(name, value, options)
             )
           } catch {
-            // The `setAll` method was called from a Server Component.
-            // This can be ignored if you have middleware refreshing sessions.
+            // Called from a Server Component — safe to ignore.
           }
         },
       },
