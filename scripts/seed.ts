@@ -9,7 +9,7 @@
 
 import { db } from '../src/lib/db'
 import { PrismaClient } from '@prisma/client'
-import { hashPassword } from '../src/lib/clubhub/auth'
+import { createServiceClient } from '../src/lib/supabase-server'
 
 const FIRST_NAMES = [
   'Aiden','Aisha','Alex','Amara','Anthony','Aria','Asher','Ava','Axel','Bella',
@@ -81,16 +81,38 @@ async function main() {
 
   // -----------------------------------------------------
   // 0) SUPER_ADMIN bootstrap user (created FIRST so audit logs etc. can
-  //    reference it). Has a known dev password so you can log in and
-  //    impersonate any club without needing to seed an officer account.
+  //    reference it). Created via Supabase Auth admin API so the password
+  //    works with Supabase Auth login.
   // -----------------------------------------------------
-  const superAdmin = await db.user.create({
-    data: {
+  const supabase = createServiceClient()
+  const ADMIN_EMAIL = 'admin@roster.app'
+  const ADMIN_PASSWORD = 'roster-admin-2026'
+
+  const { data: adminAuthData, error: adminAuthError } = await supabase.auth.admin.createUser({
+    email: ADMIN_EMAIL,
+    password: ADMIN_PASSWORD,
+    email_confirm: true,
+    user_metadata: { name: 'Roster Super Admin', role: 'SUPER_ADMIN' },
+  })
+
+  let adminAuthId: string | undefined = adminAuthData?.user?.id
+  if (adminAuthError && adminAuthError.message.includes('already')) {
+    const { data: list } = await supabase.auth.admin.listUsers()
+    adminAuthId = list?.users?.find((u: any) => u.email === ADMIN_EMAIL)?.id
+  }
+
+  const superAdmin = await db.user.upsert({
+    where: { email: ADMIN_EMAIL },
+    create: {
       name: 'Roster Super Admin',
-      email: 'superadmin@roster.local',
+      email: ADMIN_EMAIL,
       role: 'SUPER_ADMIN',
-      passwordHash: await hashPassword('roster-dev-super-123'),
+      supabaseAuthId: adminAuthId,
       house: 'Administration',
+    },
+    update: {
+      role: 'SUPER_ADMIN',
+      supabaseAuthId: adminAuthId,
     },
   })
   console.log(`Created SUPER_ADMIN bootstrap user: ${superAdmin.email}`)
@@ -106,10 +128,16 @@ async function main() {
     { name: 'Mrs. Anne Thompson', email: 'a.thompson@school.edu', dept: 'English' },
     { name: 'Mr. David Kim', email: 'd.kim@school.edu', dept: 'STEM' },
   ]
-  const advisorPasswordHash = await hashPassword('roster-dev-admin-123')
   for (const a of advisorNames) {
+    // Create in Supabase Auth
+    const { data: authData } = await supabase.auth.admin.createUser({
+      email: a.email,
+      password: 'roster-dev-admin-123',
+      email_confirm: true,
+      user_metadata: { name: a.name, role: 'ADVISOR' },
+    }).catch(() => ({ data: null }))
     advisors.push(await db.user.create({
-      data: { name: a.name, email: a.email, role: 'ADVISOR', house: a.dept, passwordHash: advisorPasswordHash }
+      data: { name: a.name, email: a.email, role: 'ADVISOR', house: a.dept, supabaseAuthId: authData?.user?.id }
     }))
   }
 
@@ -141,13 +169,19 @@ async function main() {
   }
 
   // School admin
+  const { data: principalAuth } = await supabase.auth.admin.createUser({
+    email: 'principal@school.edu',
+    password: 'roster-dev-admin-123',
+    email_confirm: true,
+    user_metadata: { name: 'Principal Olivia Wang', role: 'SCHOOL_ADMIN' },
+  }).catch(() => ({ data: null }))
   await db.user.create({
     data: {
       name: 'Principal Olivia Wang',
       email: 'principal@school.edu',
       role: 'SCHOOL_ADMIN',
       house: 'Administration',
-      passwordHash: await hashPassword('roster-dev-admin-123'),
+      supabaseAuthId: principalAuth?.user?.id,
     }
   })
 
