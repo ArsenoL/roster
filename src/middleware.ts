@@ -4,21 +4,19 @@ import { createServerClient } from '@supabase/ssr'
 /**
  * Supabase session refresh middleware.
  *
- * Runs on every request. Reads the Supabase auth cookie, refreshes the
- * access token if it's expired, and writes the refreshed cookie back to
- * the response.
+ * Only runs the Supabase refresh if the user actually HAS a Supabase cookie.
+ * For legacy users (who only have roster_session), we skip the Supabase
+ * network call entirely — it adds ~2s latency to every request and provides
+ * no value.
  *
  * IMPORTANT: This middleware ONLY refreshes cookies. It does NOT redirect.
- * Redirect logic is handled by the React components (useAuth hook) and
- * API routes (getCurrentUser returns 401). Putting redirect logic in
- * middleware causes infinite redirect loops when getUser() fails for
- * transient reasons (network, cold start, etc.).
  */
 export async function middleware(request: NextRequest) {
   const response = NextResponse.next()
 
-  // Skip Supabase refresh on auth pages and static assets
   const path = request.nextUrl.pathname
+
+  // Skip on auth pages and static assets
   if (path.startsWith('/login') ||
       path.startsWith('/signup') ||
       path.startsWith('/api/auth/') ||
@@ -27,10 +25,19 @@ export async function middleware(request: NextRequest) {
     return response
   }
 
-  // Only attempt Supabase refresh if the env vars are configured
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   if (!supabaseUrl || !supabaseKey) {
+    return response
+  }
+
+  // Only attempt Supabase refresh if the user has a Supabase auth cookie.
+  // Legacy users (roster_session only) don't need this — skip the 2s
+  // network call to Supabase.
+  const hasSupabaseCookie = request.cookies.getAll().some(
+    (c) => c.name.startsWith('sb-') && c.name.includes('auth-token')
+  )
+  if (!hasSupabaseCookie) {
     return response
   }
 
@@ -49,13 +56,10 @@ export async function middleware(request: NextRequest) {
       },
     })
 
-    // getUser() validates the JWT against the Supabase server and
-    // refreshes it if needed. We don't use the return value — we just
-    // call it to trigger the cookie refresh side effect.
+    // getUser() validates the JWT and refreshes it if needed.
     await supabase.auth.getUser()
   } catch (e) {
-    // If Supabase is unreachable, don't block the request — just proceed
-    // without refreshing. The API routes will handle auth themselves.
+    // If Supabase is unreachable, don't block the request.
   }
 
   return response
@@ -63,9 +67,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for static files.
-     */
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|css|js|ico|robots\\.txt|logo\\.svg)$).*)',
   ],
 }
