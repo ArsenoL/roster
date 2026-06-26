@@ -157,62 +157,25 @@ let isRefreshing = false
 let refreshPromise: Promise<boolean> | null = null
 
 async function recoverFrom401(): Promise<boolean> {
-  // If a refresh is already in flight, piggyback on it instead of firing
-  // another /api/auth/me request.
+  // If a refresh is already in flight, piggyback on it.
   if (isRefreshing && refreshPromise) {
     return refreshPromise
   }
   isRefreshing = true
   refreshPromise = (async () => {
-    // Check /api/auth/me. If it says the session is valid (user is non-null),
-    // retry the original request. If it says null, retry ONCE after a short
-    // delay — there are transient cases (SQLite WAL lag, connection reuse,
-    // cookie not sent on a single request) where /api/auth/me returns null
-    // even though the session is actually valid. Only redirect to /login if
-    // the retry also says null.
-    //
-    // This fixes the "after I make a club it sends me back to the sign in
-    // page" bug: the user creates a club (POST succeeds), then the next
-    // request (e.g. GET /api/clubs from useFetch) 401s for a transient
-    // reason, recoverFrom401 fires, /api/auth/me transiently returns null,
-    // and the user gets redirected to /login even though they're still
-    // signed in. The retry catches the transient case.
-    const fetchMe = async (): Promise<boolean> => {
-      try {
-        const res = await fetch('/api/auth/me')
-        if (res.ok) {
-          const d = await res.json()
-          if (d.user) return true
-        }
-        return false
-      } catch {
-        return false
-      }
-    }
-
+    // Check /api/auth/me. If it says the session is valid, retry.
+    // If not, DON'T redirect — just return false. The useAuth hook
+    // handles redirection. This prevents the "bounced to login" bug
+    // where a transient 401 on one API call forces a redirect even
+    // though the session is still valid.
     try {
-      let valid = await fetchMe()
-      if (!valid) {
-        // Wait 300ms and retry once. This handles transient cases.
-        await new Promise((r) => setTimeout(r, 300))
-        valid = await fetchMe()
+      const res = await fetch('/api/auth/me')
+      if (res.ok) {
+        const d = await res.json()
+        if (d.user) return true
       }
-
-      if (valid) {
-        // Session is still valid — tell the caller to retry the original
-        // request.
-        return true
-      }
-
-      // Session is genuinely gone after retry. Redirect to login,
-      // preserving the current path so the user lands back where they
-      // were after re-authenticating.
-      if (typeof window !== 'undefined') {
-        const current = window.location.pathname + window.location.search
-        // Don't redirect to /login as `next` (would create a loop).
-        const next = current.startsWith('/login') ? '' : `?next=${encodeURIComponent(current)}`
-        window.location.href = `/login${next}`
-      }
+      return false
+    } catch {
       return false
     } finally {
       isRefreshing = false
