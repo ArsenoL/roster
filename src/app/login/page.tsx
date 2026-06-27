@@ -273,13 +273,11 @@ function LoginInner() {
             </Link>
           </div>
 
-          {/* Bottom strip — security note in plain language */}
+          {/* Bottom strip — security note */}
           <div className="mt-8 pt-5 border-t border-border">
-            <div className="label-mono mb-2">About your password</div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Your password is hashed with scrypt before it touches our database — we never see
-              the plaintext. Sessions last 14 days on this device. Sign out from the account
-              menu any time.
+              Authentication is handled by Supabase Auth. Your password is never stored in plaintext.
+              Sessions persist until you sign out.
             </p>
           </div>
 
