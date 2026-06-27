@@ -4,17 +4,13 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ============================================================
-   Roster — Utilitarian / Civic design system + vibrant accents
-   References: USDS Public Sans, Stripe Atlas docs, early Linear,
-              then warmed up with Notion / Linear-style color splashes.
+   Roster — Modern design system (Linear / Vercel / Notion inspired)
    Principles:
-   - Civic skeleton: sharp corners (radius 0), ruled borders, mono labels
-   - Vibrant accents: a coral "energy" color for CTAs and active states,
-     a teal "calm" color for secondary accents, plus soft tinted backgrounds
-   - No drop shadows. No blur. No glass. No full-bleed gradients.
-   - Color is used as a *signal*, not as decoration — every splash points
-     at something you can act on.
-   - Public Sans for body+headings, IBM Plex Mono for data
+   - Rounded corners (8-16px), soft borders, clean spacing
+   - Indigo accent for primary actions (calm, trustworthy)
+   - Light/dark mode with proper contrast
+   - No drop shadows, no blur, no glassmorphism
+   - Color is used as a *signal*, not as decoration
    ============================================================ */
 
 @theme inline {
@@ -55,11 +51,11 @@
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
 
-  /* Sharp corners — civic forms have sharp corners */
-  --radius-sm: 0px;
-  --radius-md: 0px;
-  --radius-lg: 0px;
-  --radius-xl: 0px;
+  /* Rounded corners — modern, approachable (Linear / Vercel style) */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
 
   /* Legacy brand tokens aliased to the single accent so existing
      components keep rendering without per-file edits. We will strip
@@ -72,8 +68,7 @@
 }
 
 :root {
-  /* No rounded corners anywhere */
-  --radius: 0px;
+  --radius: 8px;
 
   /* Light mode — neutral paper, deep ink, single blue accent */
   --background: oklch(0.985 0.002 240);        /* off-white, slightly cool */
@@ -84,31 +79,22 @@
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.18 0.01 240);
 
-  /* The one accent — a confident government blue */
-  --accent: oklch(0.45 0.18 255);
+  /* Primary accent — calm indigo (Linear / Vercel style) */
+  --accent: oklch(0.55 0.22 277);
   --accent-foreground: oklch(0.99 0 0);
 
-  /* Status colors — used for status only, never decoration */
-  --accent-warn: oklch(0.62 0.16 65);          /* amber for warnings */
-  --accent-good: oklch(0.5 0.13 150);          /* green for success */
-  --accent-bad:  oklch(0.55 0.22 25);          /* red for errors */
+  /* Status colors */
+  --accent-warn: oklch(0.70 0.15 65);
+  --accent-good: oklch(0.60 0.13 150);
+  --accent-bad:  oklch(0.58 0.22 25);
 
-  /* ───── Vibrant accents ─────
-     The civic blue is still the "infrastructure" color — borders, mono labels,
-     links. The two vibrant colors below are *signal* colors used sparingly
-     on CTAs, active states, and small accent panels.
-       --vibrant        : coral — "do this next" (primary CTA, active tab)
-       --vibrant-strong : hover/pressed state for coral
-       --vibrant-soft   : 8% coral tint for backgrounds and ribbons
-       --vibrant-2      : teal — "context" (secondary highlights, info pills)
-       --vibrant-2-soft : 8% teal tint
-     Plus a soft-good background for success states (replaces inline rgba). */
-  --vibrant:        oklch(0.62 0.19 28);        /* coral */
-  --vibrant-strong: oklch(0.55 0.21 28);        /* coral pressed */
-  --vibrant-soft:   oklch(0.62 0.19 28 / 0.10); /* coral 10% tint */
-  --vibrant-2:      oklch(0.6 0.13 195);        /* teal */
-  --vibrant-2-soft: oklch(0.6 0.13 195 / 0.10); /* teal 10% tint */
-  --accent-good-soft: oklch(0.5 0.13 150 / 0.12);
+  /* Primary CTA color — indigo, same as accent */
+  --vibrant:        oklch(0.55 0.22 277);
+  --vibrant-strong: oklch(0.48 0.24 277);
+  --vibrant-soft:   oklch(0.55 0.22 277 / 0.10);
+  --vibrant-2:      oklch(0.60 0.13 195);
+  --vibrant-2-soft: oklch(0.60 0.13 195 / 0.10);
+  --accent-good-soft: oklch(0.60 0.13 150 / 0.12);
 
   --primary: var(--accent);
   --primary-foreground: oklch(0.99 0 0);
@@ -141,26 +127,24 @@
 }
 
 .dark {
-  /* Dark mode — same civic feel, inverted */
-  --background: oklch(0.16 0.005 240);
-  --foreground: oklch(0.95 0.003 240);
+  /* Dark mode — modern, like Linear / Vercel dark */
+  --background: oklch(0.145 0.005 240);
+  --foreground: oklch(0.93 0.003 240);
 
-  --card: oklch(0.2 0.005 240);
-  --card-foreground: oklch(0.95 0.003 240);
-  --popover: oklch(0.2 0.005 240);
-  --popover-foreground: oklch(0.95 0.003 240);
+  --card: oklch(0.185 0.005 240);
+  --card-foreground: oklch(0.93 0.003 240);
+  --popover: oklch(0.185 0.005 240);
+  --popover-foreground: oklch(0.93 0.003 240);
 
-  --accent: oklch(0.7 0.16 255);               /* lighter blue for dark bg */
-  --accent-foreground: oklch(0.16 0.005 240);
+  --accent: oklch(0.65 0.20 277);
+  --accent-foreground: oklch(0.145 0.005 240);
   --accent-warn: oklch(0.78 0.15 65);
   --accent-good: oklch(0.72 0.14 150);
   --accent-bad:  oklch(0.68 0.19 25);
 
-  /* Vibrant accents in dark mode — slightly brighter so they pop on the
-     dark backdrop, but the same hues as light mode for brand consistency. */
-  --vibrant:        oklch(0.7 0.19 28);
-  --vibrant-strong: oklch(0.78 0.19 28);
-  --vibrant-soft:   oklch(0.7 0.19 28 / 0.16);
+  --vibrant:        oklch(0.65 0.20 277);
+  --vibrant-strong: oklch(0.72 0.20 277);
+  --vibrant-soft:   oklch(0.65 0.20 277 / 0.16);
   --vibrant-2:      oklch(0.72 0.13 195);
   --vibrant-2-soft: oklch(0.72 0.13 195 / 0.16);
   --accent-good-soft: oklch(0.72 0.14 150 / 0.18);
