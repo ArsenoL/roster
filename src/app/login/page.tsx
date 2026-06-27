@@ -218,7 +218,11 @@ function LoginInner() {
             </form>
           )}
 
-          {/* Google OAuth button */}
+          {/* Google OAuth — disabled until provider is configured in Supabase dashboard */}
+          {/* To enable: Supabase Dashboard → Authentication → Providers → Google → enable + add OAuth credentials */}
+          {/* The button code is commented out to prevent the "blank source code" error when Google isn't configured */}
+
+          {/*
           {status !== 'success' && (
             <div className="mt-4">
               <div className="relative my-4">
@@ -256,6 +260,7 @@ function LoginInner() {
               </Button>
             </div>
           )}
+          */}
 
           {/* Sign-up link */}
           <div className="mt-6 text-center text-sm text-muted-foreground">
